@@ -8,6 +8,7 @@ import {
   buildRpcFetcher,
   runForever as runStellarListener,
 } from './services/stellarListener.js';
+import { attachRedisAdapter } from './socket/redis-adapter.js';
 
 dotenv.config();
 
@@ -29,6 +30,21 @@ io.on('connection', (socket: AuthSocket) => {
 const PORT = process.env['PORT'] ?? 3001;
 httpServer.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);
+});
+
+// #7 — attach the Redis pub/sub adapter so multiple instances share
+// Socket.IO rooms. Done after listen() so the API is reachable even if
+// Redis is unreachable; the helper logs + falls back to the in-memory
+// adapter on failure.
+void attachRedisAdapter(io).then((result) => {
+  if (result.attached) {
+    console.log('[socket.io] Redis adapter attached for horizontal scaling');
+  } else {
+    console.log(
+      `[socket.io] Redis adapter NOT attached — falling back to in-memory ` +
+        `adapter. Reason: ${result.reason}`,
+    );
+  }
 });
 
 // #46 — Stellar transfer event listener. Only spin up when the contract

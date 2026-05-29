@@ -1,0 +1,62 @@
+name: Contracts CI
+
+# #48 — runs cargo test + wasm32 release build for every PR + push that
+# touches the `contracts/` tree. Caches `~/.cargo/{registry,git}` and the
+# `target` directory so the second-and-later runs land in seconds rather
+# than minutes.
+
+on:
+  pull_request:
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/contracts-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/contracts-ci.yml'
+
+defaults:
+  run:
+    working-directory: contracts
+
+jobs:
+  cargo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable + wasm32 target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt
+
+      - name: Cache cargo registry, git, and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/target
+          key: ${{ runner.os }}-contracts-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-contracts-
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo test -p token_transfer
+        run: cargo test -p token_transfer --locked
+
+      - name: cargo test -p proposals
+        # #38 — covers the new proposals contract added in this branch.
+        run: cargo test -p proposals --locked
+
+      - name: cargo build -p token_transfer (wasm32)
+        run: cargo build -p token_transfer --target wasm32-unknown-unknown --release --locked
+
+      - name: cargo build -p proposals (wasm32)
+        run: cargo build -p proposals --target wasm32-unknown-unknown --release --locked
