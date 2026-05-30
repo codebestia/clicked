@@ -23,6 +23,7 @@
   "license": "ISC",
   "packageManager": "pnpm@10.28.1",
   "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
     "@stellar/stellar-sdk": "^15.1.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",

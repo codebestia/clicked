@@ -3,6 +3,7 @@ import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import { socketAuthMiddleware, type AuthSocket } from './middleware/socketAuth.js';
 import { registerMessagingHandlers } from './socket/messaging.js';
+import { attachRedisAdapter } from './socket/redisAdapter.js';
 import { app } from './app.js';
 import {
   buildRpcFetcher,
@@ -15,6 +16,8 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: '*' },
 });
+
+void attachRedisAdapter(io);
 
 io.use(socketAuthMiddleware);
 
