@@ -1,7 +1,7 @@
 import { Router, type Router as RouterType } from 'express';
-import { eq } from 'drizzle-orm';
+import { eq, and, or, ilike, exists, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { users } from '../db/schema.js';
+import { users, wallets } from '../db/schema.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { redis } from '../lib/redis.js';
 import { isOnline } from '../services/presence.js';
@@ -9,6 +9,55 @@ import { isOnline } from '../services/presence.js';
 export const usersRouter: RouterType = Router();
 
 usersRouter.use(requireAuth);
+
+usersRouter.get('/search', async (req: AuthRequest, res) => {
+  const raw = req.query['q'];
+  const q = typeof raw === 'string' ? raw.trim() : '';
+
+  if (!q) {
+    res.status(400).json({ error: 'Query parameter "q" is required' });
+    return;
+  }
+
+  // Escape LIKE wildcards so user input is treated literally in the prefix match.
+  const prefix = `${q.replace(/[\\%_]/g, '\\$&')}%`;
+
+  try {
+    const results = await db.query.users.findMany({
+      where: or(
+        ilike(users.username, prefix),
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(wallets)
+            .where(and(eq(wallets.userId, users.id), eq(wallets.address, q))),
+        ),
+      ),
+      columns: {
+        id: true,
+        username: true,
+        avatarUrl: true,
+      },
+      with: {
+        wallets: {
+          columns: { address: true, isPrimary: true },
+        },
+      },
+      limit: 10,
+    });
+
+    res.json(
+      results.map((user) => ({
+        id: user.id,
+        username: user.username,
+        avatarUrl: user.avatarUrl,
+        primaryWalletAddress: user.wallets.find((w) => w.isPrimary)?.address ?? null,
+      })),
+    );
+  } catch {
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
 
 usersRouter.get('/:id', async (req: AuthRequest, res) => {
   const id = req.params['id'] as string;

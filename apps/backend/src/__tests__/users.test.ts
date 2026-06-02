@@ -13,9 +13,11 @@ vi.mock('../db/index.js', () => ({
     query: {
       users: {
         findFirst: vi.fn(),
+        findMany: vi.fn(),
       },
     },
     update: mockUpdate,
+    select: vi.fn(),
   },
 }));
 
@@ -126,6 +128,78 @@ describe('GET /users/:id', () => {
     expect(res.body.wallets[0]).not.toHaveProperty('id');
     expect(res.body.wallets[0]).not.toHaveProperty('userId');
     expect(res.body.wallets[0]).not.toHaveProperty('createdAt');
+  });
+});
+
+describe('GET /users/search', () => {
+  beforeEach(() => {
+    // The exists() subquery builds `db.select().from().where()` when the handler runs.
+    const chain = { from: vi.fn(() => chain), where: vi.fn(() => chain) };
+    vi.mocked(db.select).mockReturnValue(chain as any); // eslint-disable-line
+  });
+
+  it('returns 401 when no token is provided', async () => {
+    const res = await request(app).get('/users/search?q=test');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 when q is missing', async () => {
+    const res = await request(app).get('/users/search').set('Authorization', AUTH_HEADER);
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when q is empty or whitespace', async () => {
+    const res = await request(app).get('/users/search?q=%20%20').set('Authorization', AUTH_HEADER);
+    expect(res.status).toBe(400);
+  });
+
+  it('returns mapped results with only the primary wallet address', async () => {
+    vi.mocked(db.query.users.findMany).mockResolvedValue([
+      {
+        id: 'user-uuid-123',
+        username: 'testuser',
+        avatarUrl: 'https://example.com/avatar.png',
+        wallets: [
+          { address: 'GABCDEFG', isPrimary: true },
+          { address: 'GHIJKLMN', isPrimary: false },
+        ],
+      },
+    ] as any); // eslint-disable-line
+
+    const res = await request(app).get('/users/search?q=test').set('Authorization', AUTH_HEADER);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      {
+        id: 'user-uuid-123',
+        username: 'testuser',
+        avatarUrl: 'https://example.com/avatar.png',
+        primaryWalletAddress: 'GABCDEFG',
+      },
+    ]);
+    // No private wallet fields leak through.
+    expect(res.body[0]).not.toHaveProperty('wallets');
+  });
+
+  it('returns null primaryWalletAddress when no primary wallet exists', async () => {
+    vi.mocked(db.query.users.findMany).mockResolvedValue([
+      { id: 'u1', username: 'nowallet', avatarUrl: null, wallets: [] },
+    ] as any); // eslint-disable-line
+
+    const res = await request(app).get('/users/search?q=no').set('Authorization', AUTH_HEADER);
+
+    expect(res.status).toBe(200);
+    expect(res.body[0].primaryWalletAddress).toBeNull();
+  });
+
+  it('caps results at 10 via the query limit', async () => {
+    vi.mocked(db.query.users.findMany).mockResolvedValue([] as any); // eslint-disable-line
+
+    await request(app).get('/users/search?q=test').set('Authorization', AUTH_HEADER);
+
+    expect(vi.mocked(db.query.users.findMany)).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 10 }),
+    );
   });
 });
 
