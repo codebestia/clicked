@@ -5,6 +5,7 @@ import { users, wallets } from '../db/schema.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { redis } from '../lib/redis.js';
 import { isOnline } from '../services/presence.js';
+import { fetchAndConsumeKeyBundle } from '../services/keyBundle.js';
 
 export const usersRouter: RouterType = Router();
 
@@ -139,6 +140,31 @@ usersRouter.get('/:id', async (req: AuthRequest, res) => {
   } catch {
     res.status(404).json({ error: 'User not found' });
   }
+});
+
+// GET /users/:userId/devices/:deviceId/key-bundle — fetch + consume a prekey bundle.
+//
+// Returns the recipient device's public prekey bundle and atomically consumes one
+// one-time prekey so no two senders are handed the same one. When the one-time
+// pool is exhausted the bundle is returned with `oneTimePreKey: null`. Unknown or
+// revoked devices return 404. Only public key material is ever returned.
+usersRouter.get('/:userId/devices/:deviceId/key-bundle', async (req: AuthRequest, res) => {
+  const userId = req.params['userId'] as string | undefined;
+  const deviceId = req.params['deviceId'] as string | undefined;
+
+  if (!userId || !deviceId) {
+    res.status(400).json({ error: 'userId and deviceId are required' });
+    return;
+  }
+
+  const result = await fetchAndConsumeKeyBundle(userId, deviceId);
+
+  if (!result.ok) {
+    res.status(result.status).json({ error: result.error });
+    return;
+  }
+
+  res.json(result.bundle);
 });
 
 usersRouter.get('/:id/presence', async (req: AuthRequest, res) => {

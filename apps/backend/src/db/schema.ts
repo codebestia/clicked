@@ -1,4 +1,14 @@
-import { pgTable, text, timestamp, uuid, boolean, pgEnum, index } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+  boolean,
+  integer,
+  pgEnum,
+  index,
+  unique,
+} from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 
 export const users = pgTable('users', {
@@ -18,6 +28,57 @@ export const wallets = pgTable('wallets', {
   isPrimary: boolean('is_primary').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
+
+// ─── Devices & E2E prekey bundles (#160) ───────────────────────────────────────
+//
+// Every device advertises an X3DH/Signal-style key bundle so other users can
+// open an end-to-end encrypted session with it:
+//   - a long-term `identityPublicKey` + numeric `registrationId`
+//   - one medium-term signed prekey (`signedPreKey*`), and
+//   - a pool of single-use one-time prekeys (`one_time_pre_keys`).
+//
+// Only PUBLIC key material and signatures are stored here — private keys never
+// leave the owning client. A one-time prekey is handed out at most once: it is
+// claimed with a single atomic `UPDATE ... WHERE consumed = false ... RETURNING`
+// so concurrent senders can never receive the same key. `revokedAt` soft-revokes
+// a device, after which its bundle is no longer served.
+
+export const devices = pgTable(
+  'devices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    identityPublicKey: text('identity_public_key').notNull(),
+    registrationId: integer('registration_id').notNull(),
+    signedPreKeyId: integer('signed_pre_key_id').notNull(),
+    signedPreKeyPublic: text('signed_pre_key_public').notNull(),
+    signedPreKeySignature: text('signed_pre_key_signature').notNull(),
+    revokedAt: timestamp('revoked_at'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [index('devices_user_id_idx').on(table.userId)],
+);
+
+export const oneTimePreKeys = pgTable(
+  'one_time_pre_keys',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    deviceId: uuid('device_id')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    keyId: integer('key_id').notNull(),
+    publicKey: text('public_key').notNull(),
+    consumed: boolean('consumed').notNull().default(false),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    // Partial-friendly lookup of the next unconsumed key for a device.
+    index('one_time_pre_keys_device_consumed_idx').on(table.deviceId, table.consumed),
+    unique('one_time_pre_keys_device_key_unique').on(table.deviceId, table.keyId),
+  ],
+);
 
 // ─── Conversations ────────────────────────────────────────────────────────────
 
@@ -98,10 +159,20 @@ export const usersRelations = relations(users, ({ many }) => ({
   memberships: many(conversationMembers),
   messages: many(messages),
   transfers: many(tokenTransfers),
+  devices: many(devices),
 }));
 
 export const walletsRelations = relations(wallets, ({ one }) => ({
   user: one(users, { fields: [wallets.userId], references: [users.id] }),
+}));
+
+export const devicesRelations = relations(devices, ({ one, many }) => ({
+  user: one(users, { fields: [devices.userId], references: [users.id] }),
+  oneTimePreKeys: many(oneTimePreKeys),
+}));
+
+export const oneTimePreKeysRelations = relations(oneTimePreKeys, ({ one }) => ({
+  device: one(devices, { fields: [oneTimePreKeys.deviceId], references: [devices.id] }),
 }));
 
 export const conversationsRelations = relations(conversations, ({ many }) => ({
@@ -150,3 +221,7 @@ export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 export type TokenTransfer = typeof tokenTransfers.$inferSelect;
 export type NewTokenTransfer = typeof tokenTransfers.$inferInsert;
+export type Device = typeof devices.$inferSelect;
+export type NewDevice = typeof devices.$inferInsert;
+export type OneTimePreKey = typeof oneTimePreKeys.$inferSelect;
+export type NewOneTimePreKey = typeof oneTimePreKeys.$inferInsert;
