@@ -335,3 +335,93 @@ fn test_initialize_creates_empty_members_list() {
     let members = client.get_members();
     assert_eq!(members.len(), 0);
 }
+
+// ── propose_withdraw Tests ────────────────────────────────────────────────────
+
+/// Helper: setup + deposit + add a member, returns (contract_id, token_id, admin, member)
+fn setup_with_member_and_deposit(env: &Env) -> (Address, Address, Address, Address) {
+    let (contract_id, token_id, admin, member) = setup(env);
+    let client = GroupTreasuryContractClient::new(env, &contract_id);
+    client.add_member(&member);
+    client.deposit(&member, &token_id, &500_000);
+    (contract_id, token_id, admin, member)
+}
+
+#[test]
+fn test_propose_withdraw_returns_correct_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, token_id, _admin, member) = setup_with_member_and_deposit(&env);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+
+    let id = client.propose_withdraw(&member, &recipient, &token_id, &100_000, &100);
+    assert_eq!(id, 0);
+
+    let proposal = client.get_withdraw_proposal(&id);
+    assert_eq!(proposal.id, id);
+}
+
+#[test]
+fn test_propose_withdraw_ids_increment() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, token_id, _admin, member) = setup_with_member_and_deposit(&env);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+
+    let id0 = client.propose_withdraw(&member, &recipient, &token_id, &50_000, &100);
+    let id1 = client.propose_withdraw(&member, &recipient, &token_id, &50_000, &100);
+    assert_eq!(id0, 0);
+    assert_eq!(id1, 1);
+}
+
+#[test]
+fn test_propose_withdraw_proposal_fields() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, token_id, _admin, member) = setup_with_member_and_deposit(&env);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+
+    let ttl: u32 = 200;
+    let id = client.propose_withdraw(&member, &recipient, &token_id, &100_000, &ttl);
+    let proposal = client.get_withdraw_proposal(&id);
+
+    assert_eq!(proposal.proposer, member);
+    assert_eq!(proposal.to, recipient);
+    assert_eq!(proposal.token, token_id);
+    assert_eq!(proposal.amount, 100_000);
+    assert_eq!(proposal.approvals, 1); // proposer auto-approved
+}
+
+#[test]
+#[should_panic(expected = "proposer is not a member")]
+fn test_propose_withdraw_non_member_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, token_id, _admin, _member) = setup_with_member_and_deposit(&env);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+
+    let non_member = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    client.propose_withdraw(&non_member, &recipient, &token_id, &100_000, &100);
+}
+
+#[test]
+#[should_panic(expected = "insufficient funds")]
+fn test_propose_withdraw_insufficient_funds_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, token_id, _admin, member) = setup_with_member_and_deposit(&env);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+
+    // Balance is 500_000; request more than that
+    client.propose_withdraw(&member, &recipient, &token_id, &600_000, &100);
+}
