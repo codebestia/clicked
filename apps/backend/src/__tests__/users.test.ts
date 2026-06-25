@@ -8,12 +8,17 @@ const mockWhere = vi.fn(() => ({ returning: mockReturning }));
 const mockSet = vi.fn(() => ({ where: mockWhere }));
 const mockUpdate = vi.fn(() => ({ set: mockSet }));
 
+const mockDeviceFindFirst = vi.fn();
+
 vi.mock('../db/index.js', () => ({
   db: {
     query: {
       users: {
         findFirst: vi.fn(),
         findMany: vi.fn(),
+      },
+      devices: {
+        findFirst: mockDeviceFindFirst,
       },
     },
     update: mockUpdate,
@@ -28,7 +33,7 @@ const app = express();
 app.use(express.json());
 app.use('/users', usersRouter);
 
-const VALID_TOKEN = signToken({ userId: 'auth-user-id', walletAddress: 'GAUTH' });
+const VALID_TOKEN = signToken({ userId: 'auth-user-id', walletAddress: 'GAUTH', deviceId: 'device-test-id' });
 const AUTH_HEADER = `Bearer ${VALID_TOKEN}`;
 
 const MOCK_USER = {
@@ -45,6 +50,8 @@ const MOCK_CREATED_AT = new Date('2026-05-31T12:00:00.000Z');
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: device is active; individual tests that need 401 from device checks can override.
+  mockDeviceFindFirst.mockResolvedValue({ id: 'device-test-id', isRevoked: false });
 });
 
 describe('GET /users/me', () => {

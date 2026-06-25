@@ -11,9 +11,8 @@ const JWT_SECRET: string = SECRET;
 export interface JwtPayload {
   userId: string;
   walletAddress: string;
-  // Present once the session is bound to a registered device (see user_devices).
-  // Used to flag the requesting device as `current` in device listings.
-  deviceId?: string;
+  /** Every token must carry a deviceId.  Legacy tokens without it are rejected. */
+  deviceId: string;
 }
 
 export function signToken(payload: JwtPayload): string {
@@ -21,5 +20,12 @@ export function signToken(payload: JwtPayload): string {
 }
 
 export function verifyToken(token: string): JwtPayload {
-  return jwt.verify(token, JWT_SECRET) as unknown as JwtPayload;
+  const decoded = jwt.verify(token, JWT_SECRET) as unknown as JwtPayload;
+
+  // Reject legacy tokens that pre-date device-aware auth.
+  if (!decoded.deviceId) {
+    throw new Error('Token missing deviceId — re-authentication required');
+  }
+
+  return decoded;
 }

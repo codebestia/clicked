@@ -11,13 +11,15 @@ vi.mock('../lib/nonce.js', () => ({
   consumeNonce: mockConsumeNonce,
 }));
 
-const mockFindFirst = vi.fn();
+const mockWalletFindFirst = vi.fn();
+const mockDeviceFindFirst = vi.fn();
 const mockInsert = vi.fn();
 
 vi.mock('../db/index.js', () => ({
   db: {
     query: {
-      wallets: { findFirst: mockFindFirst },
+      wallets: { findFirst: mockWalletFindFirst },
+      devices: { findFirst: mockDeviceFindFirst },
     },
     insert: mockInsert,
     execute: vi.fn().mockResolvedValue([]),
@@ -46,12 +48,27 @@ function resetRateLimiters() {
 const WALLET = 'GABCDEFGHIJKLMNOPQRSTUVWXYZ012345678901234567890123456789AB';
 const SIGNATURE = 'aabbccdd';
 const NONCE = 'test-nonce-abc123';
+const IDENTITY_KEY = 'dGVzdC1pZGVudGl0eS1wdWJsaWMta2V5'; // base64 placeholder
 
-function setupInsert(userId = 'new-user-id') {
-  const returningFn = vi.fn().mockResolvedValue([{ id: userId }]);
-  const valuesFn = vi.fn().mockReturnValue({ returning: returningFn });
-  mockInsert.mockReturnValue({ values: valuesFn });
-  return { returningFn, valuesFn };
+function setupInsert(userId = 'new-user-id', deviceId = 'new-device-id') {
+  // mockInsert is called twice when creating a new user: once for users, once for devices.
+  // For existing users it's called once for devices.
+  const userReturning = vi.fn().mockResolvedValue([{ id: userId }]);
+  const deviceReturning = vi.fn().mockResolvedValue([{ id: deviceId }]);
+  const userValues = vi.fn().mockReturnValue({ returning: userReturning });
+  const deviceValues = vi.fn().mockReturnValue({ returning: deviceReturning });
+  mockInsert
+    .mockReturnValueOnce({ values: userValues })
+    .mockReturnValueOnce({ values: deviceValues });
+  return { userReturning, deviceReturning };
+}
+
+function setupExistingUserInsert(deviceId = 'device-id') {
+  // Only the device insert is called for an existing wallet.
+  const deviceReturning = vi.fn().mockResolvedValue([{ id: deviceId }]);
+  const deviceValues = vi.fn().mockReturnValue({ returning: deviceReturning });
+  mockInsert.mockReturnValue({ values: deviceValues });
+  return { deviceReturning };
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────
@@ -100,12 +117,13 @@ describe('POST /auth/verify', () => {
   it('returns 200 with JWT token for valid new-user flow', async () => {
     mockConsumeNonce.mockReturnValue(true);
     mockVerify.mockReturnValue(true);
-    mockFindFirst.mockResolvedValue(undefined); // no existing wallet → create user
+    mockWalletFindFirst.mockResolvedValue(undefined); // no existing wallet → create user
+    mockDeviceFindFirst.mockResolvedValue(undefined); // no existing device → create device
     setupInsert();
 
     const res = await request(app)
       .post('/auth/verify')
-      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE });
+      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('token');
@@ -113,14 +131,30 @@ describe('POST /auth/verify', () => {
     expect(parts).toHaveLength(3); // valid JWT structure
   });
 
-  it('returns 200 with JWT for existing wallet (returning user)', async () => {
+  it('returns 200 with JWT for existing wallet and existing device (returning user)', async () => {
     mockConsumeNonce.mockReturnValue(true);
     mockVerify.mockReturnValue(true);
-    mockFindFirst.mockResolvedValue({ userId: 'existing-user-id', address: WALLET });
+    mockWalletFindFirst.mockResolvedValue({ userId: 'existing-user-id', address: WALLET });
+    mockDeviceFindFirst.mockResolvedValue({ id: 'device-id', isRevoked: false });
 
     const res = await request(app)
       .post('/auth/verify')
-      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE });
+      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('token');
+  });
+
+  it('returns 200 with JWT for existing wallet and new device', async () => {
+    mockConsumeNonce.mockReturnValue(true);
+    mockVerify.mockReturnValue(true);
+    mockWalletFindFirst.mockResolvedValue({ userId: 'existing-user-id', address: WALLET });
+    mockDeviceFindFirst.mockResolvedValue(undefined); // new device for existing user
+    setupExistingUserInsert();
+
+    const res = await request(app)
+      .post('/auth/verify')
+      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('token');
@@ -131,7 +165,7 @@ describe('POST /auth/verify', () => {
 
     const res = await request(app)
       .post('/auth/verify')
-      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: 'expired-nonce' });
+      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: 'expired-nonce', identityPublicKey: IDENTITY_KEY });
 
     expect(res.status).toBe(401);
     expect(res.body).toHaveProperty('error');
@@ -143,10 +177,24 @@ describe('POST /auth/verify', () => {
 
     const res = await request(app)
       .post('/auth/verify')
-      .send({ walletAddress: WALLET, signature: 'badsig', nonce: NONCE });
+      .send({ walletAddress: WALLET, signature: 'badsig', nonce: NONCE, identityPublicKey: IDENTITY_KEY });
 
     expect(res.status).toBe(401);
     expect(res.body.error).toMatch(/signature/i);
+  });
+
+  it('returns 401 when device is revoked', async () => {
+    mockConsumeNonce.mockReturnValue(true);
+    mockVerify.mockReturnValue(true);
+    mockWalletFindFirst.mockResolvedValue({ userId: 'existing-user-id', address: WALLET });
+    mockDeviceFindFirst.mockResolvedValue({ id: 'device-id', isRevoked: true });
+
+    const res = await request(app)
+      .post('/auth/verify')
+      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/revoked/i);
   });
 
   it('returns 400 when required fields are missing', async () => {
@@ -163,6 +211,15 @@ describe('POST /auth/verify', () => {
     expect(res.body).toHaveProperty('error');
   });
 
+  it('returns 400 when identityPublicKey is missing', async () => {
+    const res = await request(app)
+      .post('/auth/verify')
+      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+  });
+
   it('returns 401 when Stellar Keypair throws (malformed wallet address)', async () => {
     mockConsumeNonce.mockReturnValue(true);
     mockVerify.mockImplementation(() => {
@@ -171,7 +228,7 @@ describe('POST /auth/verify', () => {
 
     const res = await request(app)
       .post('/auth/verify')
-      .send({ walletAddress: 'INVALID', signature: SIGNATURE, nonce: NONCE });
+      .send({ walletAddress: 'INVALID', signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
 
     expect(res.status).toBe(401);
     expect(res.body).toHaveProperty('error');
@@ -184,7 +241,8 @@ describe('Auth rate limiting', () => {
     resetRateLimiters();
     mockConsumeNonce.mockReturnValue(true);
     mockVerify.mockReturnValue(true);
-    mockFindFirst.mockResolvedValue({ userId: 'existing-user-id', address: WALLET });
+    mockWalletFindFirst.mockResolvedValue({ userId: 'existing-user-id', address: WALLET });
+    mockDeviceFindFirst.mockResolvedValue({ id: 'device-id', isRevoked: false });
   });
 
   it('allows up to 10 /auth/challenge requests per minute, blocks the 11th with 429', async () => {
@@ -202,13 +260,13 @@ describe('Auth rate limiting', () => {
     for (let i = 0; i < 5; i++) {
       const res = await request(app)
         .post('/auth/verify')
-        .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE });
+        .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
       expect(res.status).toBe(200);
     }
 
     const blocked = await request(app)
       .post('/auth/verify')
-      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE });
+      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
     expect(blocked.status).toBe(429);
     expect(blocked.headers['retry-after']).toBeDefined();
   });
@@ -218,11 +276,11 @@ describe('Auth rate limiting', () => {
     for (let i = 0; i < 5; i++) {
       await request(app)
         .post('/auth/verify')
-        .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE });
+        .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
     }
     const verifyBlocked = await request(app)
       .post('/auth/verify')
-      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE });
+      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
     expect(verifyBlocked.status).toBe(429);
 
     // Challenge limit should still allow requests
