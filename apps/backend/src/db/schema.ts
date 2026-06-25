@@ -1,4 +1,13 @@
-import { pgTable, text, timestamp, uuid, boolean, pgEnum, index } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+  boolean,
+  integer,
+  pgEnum,
+  index,
+} from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 
 export const users = pgTable('users', {
@@ -18,6 +27,45 @@ export const wallets = pgTable('wallets', {
   isPrimary: boolean('is_primary').notNull().default(false),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
+
+// ─── Devices & E2E key material (#157) ─────────────────────────────────────────
+//
+// Each user authenticates one or more devices, every device advertising a
+// long-term identity `publicKey` plus a pool of one-time `device_prekeys` peers
+// consume when starting an encrypted session. Revoking a device is a *soft*
+// delete: `revokedAt` is stamped (the row is kept for audit/history), its
+// prekeys are dropped, live sockets are disconnected, and the device is excluded
+// from future fan-out. Active devices are those with `revoked_at IS NULL`.
+
+export const devices = pgTable(
+  'devices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name'),
+    publicKey: text('public_key').notNull(),
+    revokedAt: timestamp('revoked_at'),
+    lastSeenAt: timestamp('last_seen_at'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [index('devices_user_id_idx').on(table.userId)],
+);
+
+export const devicePrekeys = pgTable(
+  'device_prekeys',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    deviceId: uuid('device_id')
+      .notNull()
+      .references(() => devices.id, { onDelete: 'cascade' }),
+    keyId: integer('key_id').notNull(),
+    publicKey: text('public_key').notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [index('device_prekeys_device_id_idx').on(table.deviceId)],
+);
 
 // ─── Conversations ────────────────────────────────────────────────────────────
 
@@ -98,10 +146,20 @@ export const usersRelations = relations(users, ({ many }) => ({
   memberships: many(conversationMembers),
   messages: many(messages),
   transfers: many(tokenTransfers),
+  devices: many(devices),
 }));
 
 export const walletsRelations = relations(wallets, ({ one }) => ({
   user: one(users, { fields: [wallets.userId], references: [users.id] }),
+}));
+
+export const devicesRelations = relations(devices, ({ one, many }) => ({
+  user: one(users, { fields: [devices.userId], references: [users.id] }),
+  prekeys: many(devicePrekeys),
+}));
+
+export const devicePrekeysRelations = relations(devicePrekeys, ({ one }) => ({
+  device: one(devices, { fields: [devicePrekeys.deviceId], references: [devices.id] }),
 }));
 
 export const conversationsRelations = relations(conversations, ({ many }) => ({
@@ -150,3 +208,7 @@ export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 export type TokenTransfer = typeof tokenTransfers.$inferSelect;
 export type NewTokenTransfer = typeof tokenTransfers.$inferInsert;
+export type Device = typeof devices.$inferSelect;
+export type NewDevice = typeof devices.$inferInsert;
+export type DevicePrekey = typeof devicePrekeys.$inferSelect;
+export type NewDevicePrekey = typeof devicePrekeys.$inferInsert;

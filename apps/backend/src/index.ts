@@ -5,12 +5,14 @@ import { createClient } from 'redis';
 import dotenv from 'dotenv';
 import { eq } from 'drizzle-orm';
 import { db } from './db/index.js';
-import { conversationMembers } from './db/schema.js';
+import { conversationMembers, devices } from './db/schema.js';
 import { socketAuthMiddleware, type AuthSocket } from './middleware/socketAuth.js';
 import { registerMessagingHandlers } from './socket/messaging.js';
 import { app } from './app.js';
 import { redis as appRedis } from './lib/redis.js';
 import { setSocketServer } from './lib/socket.js';
+import { deviceRoom } from './lib/deviceBus.js';
+import { registerDeviceBusSubscriber } from './services/deviceBusSubscriber.js';
 import { setOnline, setOffline, refreshPresence } from './services/presence.js';
 import { buildRpcFetcher, runForever as runStellarListener } from './services/stellarListener.js';
 import { loadEnv } from './config.js';
@@ -33,6 +35,25 @@ io.use(socketAuthMiddleware);
 io.on('connection', async (socket: AuthSocket) => {
   const userId = socket.auth!.userId;
   console.log('User connected:', userId, socket.id);
+
+  // Bind the socket to its device (#157). A revoked or foreign device is
+  // refused so it can never rejoin rooms or receive fan-out; an active device
+  // joins its room so it can be torn down on revocation.
+  const deviceId = socket.handshake.auth['deviceId'] as string | undefined;
+  if (deviceId) {
+    const device = await db.query.devices.findFirst({
+      where: eq(devices.id, deviceId),
+      columns: { id: true, userId: true, revokedAt: true },
+    });
+
+    if (!device || device.userId !== userId || device.revokedAt) {
+      socket.emit('device_revoked', { deviceId });
+      socket.disconnect(true);
+      return;
+    }
+
+    await socket.join(deviceRoom(deviceId));
+  }
 
   // Auto-join all conversation rooms so the socket receives new_message events
   // for every conversation the user belongs to (needed for unread badge tracking).
@@ -118,6 +139,12 @@ httpServer.listen(PORT, () => {
 // Attach the Redis adapter after listen() so the API is reachable even if
 // Redis is unreachable; on failure we fall back to the in-process adapter.
 void attachRedisAdapter();
+
+// #157 — react to device revocations published on the Redis bus by tearing
+// down the revoked device's sockets on this instance.
+if (appRedis) {
+  registerDeviceBusSubscriber(io, appRedis);
+}
 
 // #46 — Stellar transfer event listener. Only spin up when the contract
 // id is configured so local-dev and unit-test runs don't try to talk to
