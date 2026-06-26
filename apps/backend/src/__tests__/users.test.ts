@@ -33,7 +33,11 @@ const app = express();
 app.use(express.json());
 app.use('/users', usersRouter);
 
-const VALID_TOKEN = signToken({ userId: 'auth-user-id', walletAddress: 'GAUTH', deviceId: 'device-test-id' });
+const VALID_TOKEN = signToken({
+  userId: 'auth-user-id',
+  walletAddress: 'GAUTH',
+  deviceId: 'device-test-id',
+});
 const AUTH_HEADER = `Bearer ${VALID_TOKEN}`;
 
 const MOCK_USER = {

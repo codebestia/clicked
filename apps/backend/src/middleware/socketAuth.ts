@@ -31,10 +31,7 @@ export async function socketAuthMiddleware(
   // Bind socket identity from the verified token — never from event payloads.
   // Also confirm the device still exists and has not been revoked.
   const device = await db.query.devices.findFirst({
-    where: and(
-      eq(devices.id, payload.deviceId),
-      eq(devices.userId, payload.userId),
-    ),
+    where: and(eq(devices.id, payload.deviceId), eq(devices.userId, payload.userId)),
   });
 
   if (!device || device.isRevoked) {

@@ -8,7 +8,11 @@ export interface AuthRequest extends Request {
   auth?: JwtPayload;
 }
 
-export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+export async function requireAuth(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
   const header = req.headers.authorization;
 
   if (!header?.startsWith('Bearer ')) {
@@ -28,10 +32,7 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
 
   // Verify the (userId, deviceId) pair exists and is not revoked.
   const device = await db.query.devices.findFirst({
-    where: and(
-      eq(devices.id, payload.deviceId),
-      eq(devices.userId, payload.userId),
-    ),
+    where: and(eq(devices.id, payload.deviceId), eq(devices.userId, payload.userId)),
   });
 
   if (!device || device.isRevoked) {

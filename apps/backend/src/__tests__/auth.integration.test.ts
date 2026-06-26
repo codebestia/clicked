@@ -121,9 +121,12 @@ describe('POST /auth/verify', () => {
     mockDeviceFindFirst.mockResolvedValue(undefined); // no existing device → create device
     setupInsert();
 
-    const res = await request(app)
-      .post('/auth/verify')
-      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
+    const res = await request(app).post('/auth/verify').send({
+      walletAddress: WALLET,
+      signature: SIGNATURE,
+      nonce: NONCE,
+      identityPublicKey: IDENTITY_KEY,
+    });
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('token');
@@ -137,9 +140,12 @@ describe('POST /auth/verify', () => {
     mockWalletFindFirst.mockResolvedValue({ userId: 'existing-user-id', address: WALLET });
     mockDeviceFindFirst.mockResolvedValue({ id: 'device-id', isRevoked: false });
 
-    const res = await request(app)
-      .post('/auth/verify')
-      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
+    const res = await request(app).post('/auth/verify').send({
+      walletAddress: WALLET,
+      signature: SIGNATURE,
+      nonce: NONCE,
+      identityPublicKey: IDENTITY_KEY,
+    });
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('token');
@@ -152,9 +158,12 @@ describe('POST /auth/verify', () => {
     mockDeviceFindFirst.mockResolvedValue(undefined); // new device for existing user
     setupExistingUserInsert();
 
-    const res = await request(app)
-      .post('/auth/verify')
-      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
+    const res = await request(app).post('/auth/verify').send({
+      walletAddress: WALLET,
+      signature: SIGNATURE,
+      nonce: NONCE,
+      identityPublicKey: IDENTITY_KEY,
+    });
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('token');
@@ -163,9 +172,12 @@ describe('POST /auth/verify', () => {
   it('returns 401 when nonce is expired or invalid', async () => {
     mockConsumeNonce.mockReturnValue(false);
 
-    const res = await request(app)
-      .post('/auth/verify')
-      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: 'expired-nonce', identityPublicKey: IDENTITY_KEY });
+    const res = await request(app).post('/auth/verify').send({
+      walletAddress: WALLET,
+      signature: SIGNATURE,
+      nonce: 'expired-nonce',
+      identityPublicKey: IDENTITY_KEY,
+    });
 
     expect(res.status).toBe(401);
     expect(res.body).toHaveProperty('error');
@@ -175,9 +187,12 @@ describe('POST /auth/verify', () => {
     mockConsumeNonce.mockReturnValue(true);
     mockVerify.mockReturnValue(false);
 
-    const res = await request(app)
-      .post('/auth/verify')
-      .send({ walletAddress: WALLET, signature: 'badsig', nonce: NONCE, identityPublicKey: IDENTITY_KEY });
+    const res = await request(app).post('/auth/verify').send({
+      walletAddress: WALLET,
+      signature: 'badsig',
+      nonce: NONCE,
+      identityPublicKey: IDENTITY_KEY,
+    });
 
     expect(res.status).toBe(401);
     expect(res.body.error).toMatch(/signature/i);
@@ -189,9 +204,12 @@ describe('POST /auth/verify', () => {
     mockWalletFindFirst.mockResolvedValue({ userId: 'existing-user-id', address: WALLET });
     mockDeviceFindFirst.mockResolvedValue({ id: 'device-id', isRevoked: true });
 
-    const res = await request(app)
-      .post('/auth/verify')
-      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
+    const res = await request(app).post('/auth/verify').send({
+      walletAddress: WALLET,
+      signature: SIGNATURE,
+      nonce: NONCE,
+      identityPublicKey: IDENTITY_KEY,
+    });
 
     expect(res.status).toBe(401);
     expect(res.body.error).toMatch(/revoked/i);
@@ -226,9 +244,12 @@ describe('POST /auth/verify', () => {
       throw new Error('invalid key');
     });
 
-    const res = await request(app)
-      .post('/auth/verify')
-      .send({ walletAddress: 'INVALID', signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
+    const res = await request(app).post('/auth/verify').send({
+      walletAddress: 'INVALID',
+      signature: SIGNATURE,
+      nonce: NONCE,
+      identityPublicKey: IDENTITY_KEY,
+    });
 
     expect(res.status).toBe(401);
     expect(res.body).toHaveProperty('error');
@@ -258,15 +279,21 @@ describe('Auth rate limiting', () => {
 
   it('allows up to 5 /auth/verify requests per minute, blocks the 6th with 429', async () => {
     for (let i = 0; i < 5; i++) {
-      const res = await request(app)
-        .post('/auth/verify')
-        .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
+      const res = await request(app).post('/auth/verify').send({
+        walletAddress: WALLET,
+        signature: SIGNATURE,
+        nonce: NONCE,
+        identityPublicKey: IDENTITY_KEY,
+      });
       expect(res.status).toBe(200);
     }
 
-    const blocked = await request(app)
-      .post('/auth/verify')
-      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
+    const blocked = await request(app).post('/auth/verify').send({
+      walletAddress: WALLET,
+      signature: SIGNATURE,
+      nonce: NONCE,
+      identityPublicKey: IDENTITY_KEY,
+    });
     expect(blocked.status).toBe(429);
     expect(blocked.headers['retry-after']).toBeDefined();
   });
@@ -274,13 +301,19 @@ describe('Auth rate limiting', () => {
   it('challenge and verify limiters are independent', async () => {
     // Exhaust verify limit
     for (let i = 0; i < 5; i++) {
-      await request(app)
-        .post('/auth/verify')
-        .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
+      await request(app).post('/auth/verify').send({
+        walletAddress: WALLET,
+        signature: SIGNATURE,
+        nonce: NONCE,
+        identityPublicKey: IDENTITY_KEY,
+      });
     }
-    const verifyBlocked = await request(app)
-      .post('/auth/verify')
-      .send({ walletAddress: WALLET, signature: SIGNATURE, nonce: NONCE, identityPublicKey: IDENTITY_KEY });
+    const verifyBlocked = await request(app).post('/auth/verify').send({
+      walletAddress: WALLET,
+      signature: SIGNATURE,
+      nonce: NONCE,
+      identityPublicKey: IDENTITY_KEY,
+    });
     expect(verifyBlocked.status).toBe(429);
 
     // Challenge limit should still allow requests

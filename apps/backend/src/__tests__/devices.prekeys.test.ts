@@ -105,9 +105,7 @@ describe('POST /devices/:id/prekeys', () => {
   it('returns 404 when device does not exist', async () => {
     mockDeviceFindFirst.mockResolvedValue(undefined);
 
-    const res = await request(makeApp())
-      .post('/devices/nonexistent/prekeys')
-      .send(VALID_BODY);
+    const res = await request(makeApp()).post('/devices/nonexistent/prekeys').send(VALID_BODY);
 
     expect(res.status).toBe(404);
     expect(res.body.error).toMatch(/not found/i);
@@ -116,9 +114,7 @@ describe('POST /devices/:id/prekeys', () => {
   it('returns 403 when the caller is not the device owner', async () => {
     mockDeviceFindFirst.mockResolvedValue({ ...ACTIVE_DEVICE, userId: 'other-user' });
 
-    const res = await request(makeApp())
-      .post('/devices/device-1/prekeys')
-      .send(VALID_BODY);
+    const res = await request(makeApp()).post('/devices/device-1/prekeys').send(VALID_BODY);
 
     expect(res.status).toBe(403);
     expect(res.body.error).toMatch(/owner/i);
@@ -127,9 +123,7 @@ describe('POST /devices/:id/prekeys', () => {
   it('returns 403 when the device is revoked', async () => {
     mockDeviceFindFirst.mockResolvedValue({ ...ACTIVE_DEVICE, isRevoked: true });
 
-    const res = await request(makeApp())
-      .post('/devices/device-1/prekeys')
-      .send(VALID_BODY);
+    const res = await request(makeApp()).post('/devices/device-1/prekeys').send(VALID_BODY);
 
     expect(res.status).toBe(403);
     expect(res.body.error).toMatch(/revoked/i);
@@ -143,9 +137,7 @@ describe('POST /devices/:id/prekeys', () => {
       verify: vi.fn(() => false),
     } as unknown as ReturnType<typeof createVerify>);
 
-    const res = await request(makeApp())
-      .post('/devices/device-1/prekeys')
-      .send(VALID_BODY);
+    const res = await request(makeApp()).post('/devices/device-1/prekeys').send(VALID_BODY);
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/signature/i);
@@ -155,9 +147,7 @@ describe('POST /devices/:id/prekeys', () => {
     mockDeviceFindFirst.mockResolvedValue(ACTIVE_DEVICE);
     setupOtpCount(200); // at cap
 
-    const res = await request(makeApp())
-      .post('/devices/device-1/prekeys')
-      .send(VALID_BODY);
+    const res = await request(makeApp()).post('/devices/device-1/prekeys').send(VALID_BODY);
 
     expect(res.status).toBe(422);
     expect(res.body.error).toMatch(/cap/i);
@@ -184,9 +174,7 @@ describe('POST /devices/:id/prekeys', () => {
     setupOtpCount(0);
     setupInsertChain();
 
-    const res = await request(makeApp())
-      .post('/devices/device-1/prekeys')
-      .send(VALID_BODY);
+    const res = await request(makeApp()).post('/devices/device-1/prekeys').send(VALID_BODY);
 
     expect(res.status).toBe(200);
     expect(res.body.uploadedSignedPreKey).toBe(true);
@@ -200,9 +188,7 @@ describe('POST /devices/:id/prekeys', () => {
     setupOtpCount(199); // 1 slot left
     setupInsertChain();
 
-    const res = await request(makeApp())
-      .post('/devices/device-1/prekeys')
-      .send(VALID_BODY); // sends 2 OTPs
+    const res = await request(makeApp()).post('/devices/device-1/prekeys').send(VALID_BODY); // sends 2 OTPs
 
     expect(res.status).toBe(200);
     expect(res.body.uploadedOneTimePreKeys).toBe(1); // capped at 1
