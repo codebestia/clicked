@@ -24,6 +24,9 @@ jobs:
   test-and-build:
     name: cargo test + build (wasm32)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
 
     defaults:
       run:
@@ -55,6 +58,9 @@ jobs:
 
       - name: cargo build (release wasm32)
         run: cargo build -p token_transfer --target wasm32-unknown-unknown --release
+
+      - name: Install GitHub CLI
+        run: sudo apt-get update && sudo apt-get install -y gh
 
       - name: Report WASM binary sizes
         if: always()
