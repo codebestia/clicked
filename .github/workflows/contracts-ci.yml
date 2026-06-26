@@ -24,6 +24,9 @@ jobs:
   test-and-build:
     name: cargo test + build (wasm32)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
 
     defaults:
       run:
@@ -55,6 +58,58 @@ jobs:
 
       - name: cargo build (release wasm32)
         run: cargo build -p token_transfer --target wasm32-unknown-unknown --release
+
+      - name: Install GitHub CLI
+        run: sudo apt-get update && sudo apt-get install -y gh
+
+      - name: Report WASM binary sizes
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+
+          # Collect sizes for all release WASMs
+          WASM_DIR="target/wasm32-unknown-unknown/release"
+          TABLE="| Contract | Size (bytes) | Size (KB) |\n|---|---|---|\n"
+          THRESHOLD_BYTES=102400  # 100 KB
+
+          FAILED=0
+          for wasm in "$WASM_DIR"/*.wasm; do
+            [ -f "$wasm" ] || continue
+            name=$(basename "$wasm")
+            bytes=$(wc -c < "$wasm")
+            kb=$(echo "scale=2; $bytes / 1024" | bc)
+            TABLE="${TABLE}| \`${name}\` | ${bytes} | ${kb} KB |\n"
+            if [ "$bytes" -gt "$THRESHOLD_BYTES" ]; then
+              echo "::error file=${name}::WASM size ${bytes} bytes exceeds ${THRESHOLD_BYTES} byte limit"
+              FAILED=1
+            fi
+          done
+
+          # Write to job summary
+          printf "## WASM Binary Sizes\n\n${TABLE}\n" >> "$GITHUB_STEP_SUMMARY"
+
+          # Update-in-place PR comment
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BODY=$(printf "<!-- wasm-size-report -->\n## WASM Binary Sizes\n\n${TABLE}")
+            # Find existing comment
+            COMMENT_ID=$(gh api \
+              repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+              --jq '.[] | select(.body | startswith("<!-- wasm-size-report -->")) | .id' \
+              2>/dev/null | head -1) || true
+            if [ -n "$COMMENT_ID" ]; then
+              gh api --method PATCH \
+                repos/${{ github.repository }}/issues/comments/"$COMMENT_ID" \
+                -f body="$BODY" || true
+            else
+              gh api --method POST \
+                repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+                -f body="$BODY" || true
+            fi
+          fi
+
+          exit $FAILED
 
   clippy:
     name: cargo clippy (wasm32)

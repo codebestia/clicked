@@ -12,7 +12,11 @@ import { app } from './app.js';
 import { redis as appRedis } from './lib/redis.js';
 import { setSocketServer } from './lib/socket.js';
 import { setOnline, setOffline, refreshPresence } from './services/presence.js';
-import { buildRpcFetcher, runForever as runStellarListener } from './services/stellarListener.js';
+import {
+  buildRpcFetcher,
+  buildTreasuryRpcFetcher,
+  runForever as runStellarListener,
+} from './services/stellarListener.js';
 import { loadEnv } from './config.js';
 
 dotenv.config();
@@ -125,11 +129,19 @@ void attachRedisAdapter();
 // chain connection logs but doesn't crash the API.
 const stellarRpcUrl = process.env['STELLAR_RPC_URL'];
 const tokenTransferContractId = process.env['TOKEN_TRANSFER_CONTRACT_ID'];
+const groupTreasuryContractId = process.env['GROUP_TREASURY_CONTRACT_ID'];
+
 if (stellarRpcUrl && tokenTransferContractId) {
   void runStellarListener({
     fetchEvents: buildRpcFetcher({
       rpcUrl: stellarRpcUrl,
       contractId: tokenTransferContractId,
+    }),
+    ...(groupTreasuryContractId && {
+      fetchTreasuryEvents: buildTreasuryRpcFetcher({
+        rpcUrl: stellarRpcUrl,
+        contractId: groupTreasuryContractId,
+      }),
     }),
   });
 } else {

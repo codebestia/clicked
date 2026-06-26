@@ -1,8 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
+import { ProposeWithdrawalModal } from "@/components/treasury/ProposeWithdrawalModal";
 
 export default function TreasuryPage() {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
   const assets = [
     { name: "Stellar Lumens", symbol: "XLM", balance: "420,500 XLM", value: "$42,050.00", percentage: "65%", color: "bg-accent" },
     { name: "USD Coin", symbol: "USDC", balance: "18,200 USDC", value: "$18,200.00", percentage: "28%", color: "bg-emerald-500" },
@@ -18,12 +21,27 @@ export default function TreasuryPage() {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div>
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight bg-gradient-to-r from-white via-foreground to-accent-light bg-clip-text text-transparent">
-          Treasury Vault
-        </h1>
-        <p className="text-sm text-foreground/40 mt-1">Manage and track your DAO&apos;s multi-signature assets on Stellar.</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight bg-gradient-to-r from-white via-foreground to-accent-light bg-clip-text text-transparent">
+            Treasury Vault
+          </h1>
+          <p className="text-sm text-foreground/40 mt-1">Manage and track your DAO&apos;s multi-signature assets on Stellar.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsModalOpen(true)}
+          className="shrink-0 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent/90"
+        >
+          Propose Withdrawal
+        </button>
       </div>
+
+      <ProposeWithdrawalModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSuccess={() => { /* list refresh hook can be added here */ }}
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">

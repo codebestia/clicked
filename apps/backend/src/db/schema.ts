@@ -159,6 +159,77 @@ export const tokenTransfers = pgTable('token_transfers', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
+// ─── User devices (#153) ──────────────────────────────────────────────────────
+//
+// Device identity registry for end-to-end encryption. Each row is one device a
+// user has registered, holding its long-term identity public key. A device is
+// never hard-deleted — revoking sets `revokedAt` so historical sessions stay
+// auditable. `(userId, deviceId)` is unique so a client re-registering the same
+// device upserts instead of duplicating, and the partial index keeps lookups of
+// a user's *active* devices fast.
+
+export const devicePlatformEnum = pgEnum('device_platform', ['web', 'ios', 'android']);
+
+export const userDevices = pgTable(
+  'user_devices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    deviceId: text('device_id').notNull(),
+    deviceName: text('device_name').notNull(),
+    platform: devicePlatformEnum('platform').notNull(),
+    identityPublicKey: text('identity_public_key').notNull(),
+    registrationId: integer('registration_id'),
+    lastSeenAt: timestamp('last_seen_at'),
+    revokedAt: timestamp('revoked_at'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('user_devices_user_id_device_id_unique').on(table.userId, table.deviceId),
+    index('user_devices_user_id_active_idx')
+      .on(table.userId)
+      .where(sql`${table.revokedAt} IS NULL`),
+  ],
+);
+
+// ─── Treasury Proposals (#130) ────────────────────────────────────────────────
+//
+// Synced from GROUP_TREASURY_CONTRACT_ID events by the Stellar listener.
+// Idempotent upsert on (contractId, proposalId).
+
+export const treasuryProposalStatusEnum = pgEnum('treasury_proposal_status', [
+  'active',
+  'approved',
+  'rejected',
+  'executed',
+  'expired',
+]);
+
+export const treasuryProposals = pgTable(
+  'treasury_proposals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    contractId: text('contract_id').notNull(),
+    proposalId: text('proposal_id').notNull(),
+    conversationId: uuid('conversation_id').references(() => conversations.id, {
+      onDelete: 'set null',
+    }),
+    status: treasuryProposalStatusEnum('status').notNull().default('active'),
+    approvalsCount: integer('approvals_count').notNull().default(0),
+    rejectionsCount: integer('rejections_count').notNull().default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('treasury_proposals_contract_proposal_idx').on(table.contractId, table.proposalId),
+  ],
+);
+
+export type TreasuryProposal = typeof treasuryProposals.$inferSelect;
+export type NewTreasuryProposal = typeof treasuryProposals.$inferInsert;
+
 // ─── Relations ────────────────────────────────────────────────────────────────
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -177,6 +248,7 @@ export const conversationsRelations = relations(conversations, ({ many }) => ({
   members: many(conversationMembers),
   messages: many(messages),
   transfers: many(tokenTransfers),
+  treasuryProposals: many(treasuryProposals),
 }));
 
 export const conversationMembersRelations = relations(conversationMembers, ({ one }) => ({
