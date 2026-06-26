@@ -30,6 +30,11 @@ export async function requireAuth(
     return;
   }
 
+  if (!payload.deviceId) {
+    res.status(401).json({ error: 'Token missing deviceId' });
+    return;
+  }
+
   // Verify the (userId, deviceId) pair exists and is not revoked.
   const device = await db.query.devices.findFirst({
     where: and(eq(devices.id, payload.deviceId), eq(devices.userId, payload.userId)),

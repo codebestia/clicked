@@ -7,6 +7,7 @@ vi.mock('../db/index.js', () => ({
   db: {
     query: {
       devices: {
+        findFirst: vi.fn(),
         findMany: vi.fn(),
       },
     },
@@ -57,6 +58,15 @@ const ROWS = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // requireAuth calls db.query.devices.findFirst to verify the device exists and is active.
+  vi.mocked(db.query.devices.findFirst).mockResolvedValue({
+    id: CURRENT_DEVICE_ID,
+    userId: USER_ID,
+    identityPublicKey: 'key-active-1',
+    isRevoked: false,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+  } as never);
 });
 
 describe('GET /devices', () => {
