@@ -188,7 +188,9 @@ export const treasuryProposals = pgTable(
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at').notNull().defaultNow(),
   },
-  (table) => [uniqueIndex('treasury_proposals_contract_proposal_idx').on(table.contractId, table.proposalId)],
+  (table) => [
+    uniqueIndex('treasury_proposals_contract_proposal_idx').on(table.contractId, table.proposalId),
+  ],
 );
 
 export type TreasuryProposal = typeof treasuryProposals.$inferSelect;

@@ -12,7 +12,11 @@ import { app } from './app.js';
 import { redis as appRedis } from './lib/redis.js';
 import { setSocketServer } from './lib/socket.js';
 import { setOnline, setOffline, refreshPresence } from './services/presence.js';
-import { buildRpcFetcher, buildTreasuryRpcFetcher, runForever as runStellarListener } from './services/stellarListener.js';
+import {
+  buildRpcFetcher,
+  buildTreasuryRpcFetcher,
+  runForever as runStellarListener,
+} from './services/stellarListener.js';
 import { loadEnv } from './config.js';
 
 dotenv.config();

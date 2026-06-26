@@ -8,7 +8,7 @@ export const treasuryRouter = Router();
 treasuryRouter.use(requireAuth);
 
 const TTL_LEDGERS: Record<string, number> = {
-  '24h': 17280,   // ~24 h at 5 s/ledger
+  '24h': 17280, // ~24 h at 5 s/ledger
   '72h': 51840,
   '7d': 120960,
 };
