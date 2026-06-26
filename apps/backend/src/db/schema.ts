@@ -160,6 +160,40 @@ export const userDevices = pgTable(
   ],
 );
 
+// ─── Treasury Proposals (#130) ────────────────────────────────────────────────
+//
+// Synced from GROUP_TREASURY_CONTRACT_ID events by the Stellar listener.
+// Idempotent upsert on (contractId, proposalId).
+
+export const treasuryProposalStatusEnum = pgEnum('treasury_proposal_status', [
+  'active',
+  'approved',
+  'rejected',
+  'executed',
+  'expired',
+]);
+
+export const treasuryProposals = pgTable(
+  'treasury_proposals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    contractId: text('contract_id').notNull(),
+    proposalId: text('proposal_id').notNull(),
+    conversationId: uuid('conversation_id').references(() => conversations.id, {
+      onDelete: 'set null',
+    }),
+    status: treasuryProposalStatusEnum('status').notNull().default('active'),
+    approvalsCount: integer('approvals_count').notNull().default(0),
+    rejectionsCount: integer('rejections_count').notNull().default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('treasury_proposals_contract_proposal_idx').on(table.contractId, table.proposalId)],
+);
+
+export type TreasuryProposal = typeof treasuryProposals.$inferSelect;
+export type NewTreasuryProposal = typeof treasuryProposals.$inferInsert;
+
 // ─── Relations ────────────────────────────────────────────────────────────────
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -178,6 +212,7 @@ export const conversationsRelations = relations(conversations, ({ many }) => ({
   members: many(conversationMembers),
   messages: many(messages),
   transfers: many(tokenTransfers),
+  treasuryProposals: many(treasuryProposals),
 }));
 
 export const conversationMembersRelations = relations(conversationMembers, ({ one }) => ({
