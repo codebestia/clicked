@@ -51,16 +51,18 @@ const NONCE = 'test-nonce-abc123';
 const IDENTITY_KEY = 'dGVzdC1pZGVudGl0eS1wdWJsaWMta2V5'; // base64 placeholder
 
 function setupInsert(userId = 'new-user-id', deviceId = 'new-device-id') {
-  // mockInsert is called twice when creating a new user: once for users, once for devices.
-  // For existing users it's called once for devices.
+  // New-user flow inserts: users → wallets → devices (3 calls total).
   const userReturning = vi.fn().mockResolvedValue([{ id: userId }]);
+  const walletReturning = vi.fn().mockResolvedValue([]);
   const deviceReturning = vi.fn().mockResolvedValue([{ id: deviceId }]);
   const userValues = vi.fn().mockReturnValue({ returning: userReturning });
+  const walletValues = vi.fn().mockReturnValue({ returning: walletReturning });
   const deviceValues = vi.fn().mockReturnValue({ returning: deviceReturning });
   mockInsert
     .mockReturnValueOnce({ values: userValues })
+    .mockReturnValueOnce({ values: walletValues })
     .mockReturnValueOnce({ values: deviceValues });
-  return { userReturning, deviceReturning };
+  return { userReturning, walletReturning, deviceReturning };
 }
 
 function setupExistingUserInsert(deviceId = 'device-id') {
