@@ -97,15 +97,15 @@ jobs:
             COMMENT_ID=$(gh api \
               repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
               --jq '.[] | select(.body | startswith("<!-- wasm-size-report -->")) | .id' \
-              | head -1)
+              2>/dev/null | head -1) || true
             if [ -n "$COMMENT_ID" ]; then
               gh api --method PATCH \
                 repos/${{ github.repository }}/issues/comments/"$COMMENT_ID" \
-                -f body="$BODY"
+                -f body="$BODY" || true
             else
               gh api --method POST \
                 repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
-                -f body="$BODY"
+                -f body="$BODY" || true
             fi
           fi
 
