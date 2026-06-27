@@ -5,7 +5,10 @@ mod test;
 mod token_interface;
 
 use soroban_sdk::{contract, contractimpl, Address, Env, Map, Symbol, Vec};
-use storage::{DataKey, DepositEvent, MemberAddedEvent, MemberRemovedEvent, WithdrawEvent};
+use storage::{
+    DataKey, DepositEvent, MemberAddedEvent, MemberRemovedEvent, ProposalCreatedEvent,
+    ProposalStatus, WithdrawEvent, WithdrawProposal,
+};
 use token_interface::TokenClient;
 
 fn require_admin(env: &Env) -> Address {
@@ -189,5 +192,87 @@ impl GroupTreasuryContract {
             .unwrap_or_else(|| Map::new(&env));
 
         balances.get(token).unwrap_or(0)
+    }
+
+    /// Member-only: Create a withdrawal proposal. Returns the new proposal ID.
+    pub fn propose_withdraw(
+        env: Env,
+        proposer: Address,
+        to: Address,
+        token: Address,
+        amount: i128,
+        ttl_ledgers: u32,
+    ) -> u32 {
+        proposer.require_auth();
+
+        // Verify proposer is a member
+        let members: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Members)
+            .unwrap_or_else(|| Vec::new(&env));
+        let is_member = members.iter().any(|m| m == proposer);
+        if !is_member {
+            panic!("not a member");
+        }
+
+        // Verify amount > 0
+        if amount <= 0 {
+            panic!("amount must be positive");
+        }
+
+        // Verify sufficient treasury balance
+        let balances: Map<Address, i128> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Balances)
+            .unwrap_or_else(|| Map::new(&env));
+        let current = balances.get(token.clone()).unwrap_or(0);
+        if current < amount {
+            panic!("insufficient funds");
+        }
+
+        // Increment proposal count and get new ID
+        let id: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::ProposalCount)
+            .unwrap_or(0_u32)
+            + 1;
+        env.storage().instance().set(&DataKey::ProposalCount, &id);
+
+        let expires_at = env.ledger().sequence() + ttl_ledgers;
+
+        // Auto-add proposer's approval
+        let mut approvals: Vec<Address> = Vec::new(&env);
+        approvals.push_back(proposer.clone());
+
+        let proposal = WithdrawProposal {
+            id,
+            proposer: proposer.clone(),
+            to: to.clone(),
+            token: token.clone(),
+            amount,
+            approvals,
+            status: ProposalStatus::Pending,
+            expires_at,
+        };
+        env.storage()
+            .instance()
+            .set(&DataKey::Proposal(id), &proposal);
+
+        env.events().publish(
+            (Symbol::new(&env, "proposal_created"),),
+            ProposalCreatedEvent {
+                id,
+                proposer,
+                to,
+                token,
+                amount,
+                expires_at,
+            },
+        );
+
+        id
     }
 }

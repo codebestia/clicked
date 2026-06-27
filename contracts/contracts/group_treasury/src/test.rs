@@ -335,3 +335,72 @@ fn test_initialize_creates_empty_members_list() {
     let members = client.get_members();
     assert_eq!(members.len(), 0);
 }
+
+// ── propose_withdraw Tests ────────────────────────────────────────────────────
+
+#[test]
+fn test_propose_withdraw_returns_id_and_stores_proposal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, token_id, admin, member) = setup(&env);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+
+    client.add_member(&member);
+    client.deposit(&member, &token_id, &500_000);
+
+    let recipient = Address::generate(&env);
+    let id = client.propose_withdraw(&member, &recipient, &token_id, &100_000, &100);
+    assert_eq!(id, 1);
+}
+
+#[test]
+#[should_panic(expected = "not a member")]
+fn test_propose_withdraw_non_member_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, token_id, _admin, member) = setup(&env);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+
+    client.deposit(&member, &token_id, &500_000);
+
+    let non_member = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    // non_member is not in members list — should panic
+    client.propose_withdraw(&non_member, &recipient, &token_id, &100_000, &100);
+}
+
+#[test]
+#[should_panic(expected = "insufficient funds")]
+fn test_propose_withdraw_insufficient_balance_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, token_id, _admin, member) = setup(&env);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+
+    client.add_member(&member);
+    client.deposit(&member, &token_id, &50_000);
+
+    let recipient = Address::generate(&env);
+    client.propose_withdraw(&member, &recipient, &token_id, &100_000, &100);
+}
+
+#[test]
+fn test_propose_withdraw_increments_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, token_id, _admin, member) = setup(&env);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+
+    client.add_member(&member);
+    client.deposit(&member, &token_id, &500_000);
+
+    let recipient = Address::generate(&env);
+    let id1 = client.propose_withdraw(&member, &recipient, &token_id, &10_000, &100);
+    let id2 = client.propose_withdraw(&member, &recipient, &token_id, &10_000, &100);
+    assert_eq!(id1, 1);
+    assert_eq!(id2, 2);
+}
