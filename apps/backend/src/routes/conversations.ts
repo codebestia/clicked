@@ -8,6 +8,7 @@ import { redis, CONV_CACHE_TTL, convCacheKey } from '../lib/redis.js';
 import { invalidateConversationCaches } from '../lib/conversationCache.js';
 import { serializeMessage } from '../lib/messages.js';
 import { getSocketServer } from '../lib/socket.js';
+import { messageEnvelopes } from '../db/schema.js';
 import { MAX_MESSAGES_LIMIT, DEFAULT_MESSAGES_LIMIT } from '../constants.js';
 
 export const conversationsRouter: IRouter = Router();
@@ -95,7 +96,7 @@ conversationsRouter.get('/', async (req: AuthRequest, res) => {
     with: {
       conversation: conversationRelations as never,
     },
-  })) as unknown as Array<{ conversationId: string; conversation: ConversationPayload }>;
+  })) as unknown as Array<{ conversationId: string; conversation: ConversationPayload; isMuted: boolean; isArchived: boolean }>;
 
   // Single subquery for message counts — no N+1
   const conversationIds = memberships.map((m) => m.conversationId);
@@ -471,7 +472,13 @@ conversationsRouter.get('/:id/messages', async (req: AuthRequest, res) => {
       : eq(messages.conversationId, conversationId),
     orderBy: desc(messages.createdAt),
     limit: limit + 1,
-    with: { sender: { columns: { id: true, username: true, avatarUrl: true } } },
+    with: { 
+      sender: { columns: { id: true, username: true, avatarUrl: true } },
+      envelopes: {
+        where: eq(messageEnvelopes.recipientDeviceId, req.auth!.deviceId),
+        limit: 1,
+      }
+    },
   });
 
   const hasMore = rows.length > limit;
@@ -482,7 +489,21 @@ conversationsRouter.get('/:id/messages', async (req: AuthRequest, res) => {
 
   const nextCursor = hasMore ? (page[0]?.id ?? null) : null;
 
-  res.json({ messages: page, nextCursor });
+  const serializedPage = page.map((msg) => {
+    let resolvedCiphertext: string | null = null;
+    if (msg.envelopes && msg.envelopes.length > 0) {
+      resolvedCiphertext = msg.envelopes[0]!.ciphertext;
+    } else if (msg.ciphertext) {
+      resolvedCiphertext = msg.ciphertext;
+    } else {
+      resolvedCiphertext = 'unavailable';
+    }
+
+    const { envelopes, ...rest } = msg;
+    return serializeMessage({ ...rest, ciphertext: resolvedCiphertext });
+  });
+
+  res.json({ messages: serializedPage, nextCursor });
 });
 
 conversationsRouter.get('/:id/search', async (req: AuthRequest, res) => {
@@ -512,40 +533,8 @@ conversationsRouter.get('/:id/search', async (req: AuthRequest, res) => {
     return;
   }
 
-  const results = await db.execute<{
-    id: string;
-    conversationId: string;
-    senderId: string;
-    content: string;
-    createdAt: Date;
-    snippet: string;
-    rank: string;
-  }>(sql`
-    WITH search_query AS (
-      SELECT websearch_to_tsquery('english', ${query}) AS query
-    )
-    SELECT
-      ${messages.id} AS "id",
-      ${messages.conversationId} AS "conversationId",
-      ${messages.senderId} AS "senderId",
-      ${messages.content} AS "content",
-      ${messages.createdAt} AS "createdAt",
-      ts_headline(
-        'english',
-        ${messages.content},
-        search_query.query,
-        'StartSel=<mark>, StopSel=</mark>, MaxWords=24, MinWords=8, ShortWord=3, HighlightAll=false'
-      ) AS "snippet",
-      ts_rank_cd(to_tsvector('english', ${messages.content}), search_query.query) AS "rank"
-    FROM ${messages}, search_query
-    WHERE ${messages.conversationId} = ${conversationId}
-      AND ${messages.deletedAt} IS NULL
-      AND search_query.query @@ to_tsvector('english', ${messages.content})
-    ORDER BY "rank" DESC, ${messages.createdAt} DESC
-    LIMIT ${SEARCH_RESULT_LIMIT}
-  `);
-
-  res.json({ results });
+  // Search is disabled for E2EE messages on the server
+  res.json({ results: [] });
 });
 
 // PATCH /conversations/:id/settings — update muted/archived state for the authenticated user

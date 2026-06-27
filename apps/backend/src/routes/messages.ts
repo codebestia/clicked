@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { IRouter } from 'express';
 import { and, eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { conversationMembers, messages } from '../db/schema.js';
+import { conversationMembers, messages, messageEnvelopes } from '../db/schema.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { invalidateConversationCaches } from '../lib/conversationCache.js';
 import { getSocketServer } from '../lib/socket.js';
@@ -36,8 +36,12 @@ messagesRouter.delete('/:id', async (req: AuthRequest, res) => {
 
   await db
     .update(messages)
-    .set({ deletedAt: new Date() })
+    .set({ deletedAt: new Date(), ciphertext: null })
     .where(and(eq(messages.id, messageId), eq(messages.senderId, userId)));
+
+  await db
+    .delete(messageEnvelopes)
+    .where(eq(messageEnvelopes.messageId, messageId));
 
   getSocketServer()?.to(message.conversationId).emit('message_deleted', {
     messageId: message.id,

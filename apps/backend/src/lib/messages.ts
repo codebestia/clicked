@@ -1,15 +1,16 @@
 type MessageLike = {
-  content: string | null;
+  ciphertext?: string | null;
   deletedAt?: Date | null;
+  [key: string]: any;
 };
 
 export function serializeMessage<T extends MessageLike>(
   message: T,
-): Omit<T, 'deletedAt'> & { content: string | null } {
+): Omit<T, 'deletedAt'> & { ciphertext: string | null } {
   const { deletedAt, ...rest } = message;
 
   return {
     ...rest,
-    content: deletedAt ? null : message.content,
+    ciphertext: deletedAt ? null : (message.ciphertext ?? null),
   };
 }

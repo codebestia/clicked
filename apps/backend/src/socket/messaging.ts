@@ -1,7 +1,8 @@
 import type { Server } from 'socket.io';
+import { randomUUID } from 'node:crypto';
 import { and, eq, lt, desc, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { conversations, conversationMembers, messages } from '../db/schema.js';
+import { conversations, conversationMembers, messages, messageEnvelopes, devices } from '../db/schema.js';
 import type { AuthSocket } from '../middleware/socketAuth.js';
 import { invalidateConversationCaches } from '../lib/conversationCache.js';
 import { serializeMessage } from '../lib/messages.js';
@@ -35,42 +36,114 @@ export function registerMessagingHandlers(io: Server, socket: AuthSocket): void 
   });
 
   // ── send_message ───────────────────────────────────────────────────────────
-  // Payload: { conversationId: string; content: string }
-  // Persists the message and broadcasts it to all room members.
-  socket.on('send_message', async (payload: { conversationId: string; content: string }) => {
-    const { conversationId, content } = payload;
+  // Payload: { conversationId: string; messageId: string; contentType?: string; envelopes?: { recipientDeviceId: string; ciphertext: string }[]; ciphertext?: string; senderDeviceId?: string; }
+  // Persists the message and envelopes, broadcasts it to all room members, and acks the sender.
+  socket.on(
+    'send_message',
+    async (payload: {
+      conversationId: string;
+      messageId: string;
+      contentType?: string;
+      envelopes?: { recipientDeviceId: string; ciphertext: string }[];
+      ciphertext?: string;
+      senderDeviceId?: string;
+    }) => {
+      const {
+        conversationId,
+        messageId,
+        contentType = 'text/plain',
+        envelopes = [],
+        ciphertext,
+        senderDeviceId,
+      } = payload;
 
-    if (!content?.trim()) {
-      socket.emit('error', { event: 'send_message', message: 'Content must not be empty' });
-      return;
+      if (!messageId) {
+        socket.emit('error', { event: 'send_message', message: 'messageId is required' });
+        return;
+      }
+
+      const membership = await db.query.conversationMembers.findFirst({
+        where: and(
+          eq(conversationMembers.conversationId, conversationId),
+          eq(conversationMembers.userId, userId),
+        ),
+      });
+
+      if (!membership) {
+        socket.emit('error', { event: 'send_message', message: 'Not a member of this conversation' });
+        return;
+      }
+
+      try {
+        const insertResult = await db.execute<{ id: string; sequence_number: number; created_at: Date }>(sql`
+          INSERT INTO messages (id, conversation_id, sender_id, sender_device_id, content_type, ciphertext, sequence_number)
+          VALUES (
+            ${messageId}::uuid,
+            ${conversationId}::uuid,
+            ${userId}::uuid,
+            ${senderDeviceId ? sql`${senderDeviceId}::uuid` : sql`NULL::uuid`},
+            ${contentType},
+            ${ciphertext ?? null},
+            COALESCE((SELECT MAX(sequence_number) FROM messages WHERE conversation_id = ${conversationId}::uuid), 0) + 1
+          )
+          ON CONFLICT (id) DO NOTHING
+          RETURNING id, sequence_number, created_at
+        `);
+
+        if (insertResult.length === 0) {
+          // Idempotent: already exists. Fetch it to return ACK.
+          const existing = await db.query.messages.findFirst({
+            where: eq(messages.id, messageId),
+          });
+          if (existing) {
+             socket.emit('message_ack', { messageId, sequenceNumber: existing.sequenceNumber });
+          }
+          return;
+        }
+
+        const messageData = insertResult[0];
+
+        if (envelopes.length > 0) {
+          const deviceIds = envelopes.map(e => e.recipientDeviceId);
+          const devicesList = await db.query.devices.findMany({
+            where: sql`id = ANY(ARRAY[${sql.join(deviceIds.map(d => sql`${d}::uuid`), sql`, `)}])`
+          });
+          const deviceUserMap = new Map(devicesList.map(d => [d.id, d.userId]));
+          
+          const envelopeValues = envelopes
+            .filter(e => deviceUserMap.has(e.recipientDeviceId))
+            .map(e => ({
+              messageId,
+              recipientDeviceId: e.recipientDeviceId,
+              recipientUserId: deviceUserMap.get(e.recipientDeviceId)!,
+              ciphertext: e.ciphertext
+            }));
+
+          if (envelopeValues.length > 0) {
+            await db.insert(messageEnvelopes).values(envelopeValues);
+          }
+        }
+
+        const messageToEmit = await db.query.messages.findFirst({
+          where: eq(messages.id, messageId),
+          with: { sender: { columns: { id: true, username: true, avatarUrl: true } } },
+        });
+
+        io.to(conversationId).emit('new_message', serializeMessage(messageToEmit!));
+        socket.emit('message_ack', { messageId, sequenceNumber: messageData!.sequence_number });
+
+        const members = await db.query.conversationMembers.findMany({
+          where: eq(conversationMembers.conversationId, conversationId),
+          columns: { userId: true },
+        });
+
+        await invalidateConversationCaches(members.map((member) => member.userId));
+      } catch (error) {
+        console.error('send_message error:', error);
+        socket.emit('error', { event: 'send_message', message: 'Failed to send message' });
+      }
     }
-
-    const membership = await db.query.conversationMembers.findFirst({
-      where: and(
-        eq(conversationMembers.conversationId, conversationId),
-        eq(conversationMembers.userId, userId),
-      ),
-    });
-
-    if (!membership) {
-      socket.emit('error', { event: 'send_message', message: 'Not a member of this conversation' });
-      return;
-    }
-
-    const [message] = await db
-      .insert(messages)
-      .values({ conversationId, senderId: userId, content: content.trim() })
-      .returning();
-
-    io.to(conversationId).emit('new_message', message);
-
-    const members = await db.query.conversationMembers.findMany({
-      where: eq(conversationMembers.conversationId, conversationId),
-      columns: { userId: true },
-    });
-
-    await invalidateConversationCaches(members.map((member) => member.userId));
-  });
+  );
 
   // ── message_history ────────────────────────────────────────────────────────
   // Payload: { conversationId: string; before?: string } (before = message id cursor)
@@ -315,9 +388,10 @@ export function registerMessagingHandlers(io: Server, socket: AuthSocket): void 
       const [replyMessage] = await db
         .insert(messages)
         .values({
+          id: randomUUID(),
           conversationId,
           senderId: ASSISTANT_USER_ID,
-          content: data.reply,
+          ciphertext: data.reply,
         })
         .returning();
 
