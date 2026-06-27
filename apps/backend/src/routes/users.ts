@@ -1,7 +1,8 @@
+import { createHash } from 'node:crypto';
 import { Router, type Router as RouterType } from 'express';
 import { eq, and, or, ilike, exists, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { users, wallets } from '../db/schema.js';
+import { users, wallets, devices } from '../db/schema.js';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { redis } from '../lib/redis.js';
 import { isOnline } from '../services/presence.js';
@@ -149,6 +150,104 @@ usersRouter.get('/:id/presence', async (req: AuthRequest, res) => {
   }
   const online = await isOnline(redis, id);
   res.json({ online });
+});
+
+/**
+ * GET /users/:id/key-fingerprint
+ *
+ * Returns a 60-digit numeric safety number derived from the user's set of
+ * active device identity public keys.  The derivation is deterministic and
+ * identical on all clients:
+ *
+ *   1. Collect all non-revoked device identityPublicKey values for the user.
+ *   2. Sort them lexicographically (UTF-8 byte order on the base64 strings).
+ *   3. Concatenate them separated by a single newline (`\n`).
+ *   4. Compute SHA-256 of the UTF-8-encoded concatenated string.
+ *   5. Take the first 30 bytes of the digest and interpret them as a
+ *      big-endian unsigned integer modulo 10^30, zero-padded to 30 digits.
+ *   6. Repeat with bytes 16–31 and reduce modulo 10^30 to produce a second
+ *      30-digit segment, then concatenate → 60 digits total.
+ *      (This matches Signal's safety-number derivation: two independent
+ *      30-digit numbers from non-overlapping digest halves, formatted in
+ *      groups of 5 separated by spaces.)
+ *
+ * The final value is returned both as a raw 60-character digit string and as
+ * the canonical "groups of 5" display format (12 groups of 5, space-separated).
+ */
+usersRouter.get('/:id/key-fingerprint', async (req: AuthRequest, res) => {
+  const id = req.params['id'] as string;
+
+  try {
+    // Verify the target user exists.
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, id),
+      columns: { id: true },
+    });
+
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    // Fetch all active (non-revoked) device identity public keys.
+    const activeDevices = await db.query.devices.findMany({
+      where: and(eq(devices.userId, id), eq(devices.isRevoked, false)),
+      columns: { identityPublicKey: true },
+    });
+
+    if (activeDevices.length === 0) {
+      res.status(404).json({ error: 'No active devices found for this user' });
+      return;
+    }
+
+    // Step 2: sort lexicographically.
+    const sortedKeys = activeDevices
+      .map((d) => d.identityPublicKey)
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+
+    // Step 3: concatenate with newline separator.
+    const concatenated = sortedKeys.join('\n');
+
+    // Step 4: SHA-256.
+    const digest = createHash('sha256').update(concatenated, 'utf8').digest();
+
+    // Steps 5 & 6: produce two 30-digit segments from the 32-byte digest.
+    // Segment A: bytes 0–14 (15 bytes → 120 bits), reduce mod 10^30.
+    // Segment B: bytes 15–29 (15 bytes), reduce mod 10^30.
+    // (15 bytes gives well above the 30 decimal digits we need while keeping
+    // overlap-free regions within 32 digest bytes.)
+    function bytesToSafetySegment(buf: Buffer, offset: number, length: number): string {
+      let value = BigInt(0);
+      for (let i = 0; i < length; i++) {
+        value = (value << BigInt(8)) | BigInt(buf[offset + i]!);
+      }
+      const mod = value % BigInt('1' + '0'.repeat(30));
+      return mod.toString().padStart(30, '0');
+    }
+
+    const segmentA = bytesToSafetySegment(digest, 0, 15);
+    const segmentB = bytesToSafetySegment(digest, 15, 15);
+    const raw = segmentA + segmentB;
+
+    // Format: 12 groups of 5 digits, space-separated (Signal convention).
+    const formatted = raw.match(/.{5}/g)!.join(' ');
+
+    res.json({
+      userId: id,
+      /**
+       * Raw 60-digit numeric fingerprint.  Clients compare this string
+       * after stripping spaces; the formatted version is for display.
+       */
+      fingerprint: raw,
+      /**
+       * Human-readable version in groups of 5, matching Signal's safety
+       * number display format.
+       */
+      formatted,
+    });
+  } catch {
+    res.status(500).json({ error: 'Failed to compute key fingerprint' });
+  }
 });
 
 usersRouter.patch('/me', async (req: AuthRequest, res) => {

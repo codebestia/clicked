@@ -1,27 +1,25 @@
 /**
- * Stellar event listener for `token_transfer` (#46).
+ * Stellar event listener for `token_transfer` (#46) and `group_treasury` multisig (#130).
  *
- * Subscribes to contract events emitted by the `token_transfer` Soroban
- * contract and writes each into the `token_transfers` table. The listener:
+ * Subscribes to contract events emitted by the `token_transfer` and
+ * `group_treasury` Soroban contracts. The listener:
  *
- *   - Polls Soroban RPC `getEvents` on a short interval (cursor-based),
- *     which is the supported pattern in stellar-sdk's `rpc` module today.
+ *   - Polls Soroban RPC `getEvents` on a short interval (cursor-based).
  *   - Reconnects automatically after a transient failure with exponential
  *     backoff capped at 30 seconds.
- *   - Upserts on the unique `tx_hash` so a reconnect that re-reads a page
- *     of events produces no duplicates.
+ *   - Upserts on the unique `tx_hash` / `(contractId, proposalId)` so
+ *     reconnects that re-read a page produce no duplicates.
+ *   - After each treasury proposal DB update, emits a
+ *     `treasury_proposal_updated` Socket.IO event to the relevant room.
  *   - Logs errors via the standard backend logger but never rethrows out
  *     of `runForever`, so the API server stays up even if the chain is
  *     unreachable.
- *
- * The actual fetch is wrapped behind a `fetchEvents` dependency so the
- * unit tests under `__tests__/stellarListener.test.ts` can drive the
- * loop deterministically without hitting Soroban RPC.
  */
 import { rpc } from '@stellar/stellar-sdk';
 import { db } from '../db/index.js';
-import { tokenTransfers, messages, conversations, users } from '../db/schema.js';
+import { tokenTransfers, messages, conversations, users, treasuryProposals } from '../db/schema.js';
 import { eq, sql } from 'drizzle-orm';
+import { getSocketServer } from '../lib/socket.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_BACKOFF_BASE_MS = 1_000;
@@ -44,6 +42,27 @@ export interface StellarTransferEvent {
   cursor: string;
 }
 
+// ── Treasury multisig event types (#130) ─────────────────────────────────────
+
+export type TreasuryProposalStatus = 'active' | 'approved' | 'rejected' | 'executed' | 'expired';
+
+export interface TreasuryProposalEvent {
+  /** The contract that emitted the event. */
+  contractId: string;
+  /** Soroban event type name, e.g. "proposal_created". */
+  eventType:
+    | 'proposal_created'
+    | 'proposal_approved'
+    | 'proposal_rejected'
+    | 'proposal_executed'
+    | 'proposal_expired';
+  proposalId: string;
+  approvalsCount?: number | undefined;
+  rejectionsCount?: number | undefined;
+  /** Cursor token for the next `fetchTreasuryEvents` call. */
+  cursor: string;
+}
+
 export interface StellarListenerDeps {
   /** Optional logger; defaults to a console wrapper. */
   log?: {
@@ -51,11 +70,14 @@ export interface StellarListenerDeps {
     warn: (msg: string, ctx?: unknown) => void;
     error: (msg: string, ctx?: unknown) => void;
   };
-  /** Fetches the next page of events starting at `cursor`. Must throw on
-   *  network / RPC failures so the listener can apply backoff. */
+  /** Fetches the next page of token-transfer events starting at `cursor`. */
   fetchEvents: (cursor: string | null) => Promise<StellarTransferEvent[]>;
+  /** Fetches the next page of treasury proposal events starting at `cursor`. */
+  fetchTreasuryEvents?: (cursor: string | null) => Promise<TreasuryProposalEvent[]>;
   /** Persistence layer; swapped out in tests. */
   persistEvent?: (event: StellarTransferEvent) => Promise<void>;
+  /** Treasury event persistence; swapped out in tests. */
+  persistTreasuryEvent?: (event: TreasuryProposalEvent) => Promise<void>;
   /** Pause between successful polls (default 5s). */
   pollIntervalMs?: number;
   /** Initial backoff after a failure (doubles up to `backoffMaxMs`). */
@@ -135,17 +157,75 @@ async function defaultPersistEvent(event: StellarTransferEvent): Promise<void> {
 }
 
 /**
+ * Default treasury proposal persistence (#130).
+ * Upserts on (contractId, proposalId), then emits treasury_proposal_updated
+ * to the relevant Socket.IO room.
+ */
+async function defaultPersistTreasuryEvent(event: TreasuryProposalEvent): Promise<void> {
+  const statusMap: Record<TreasuryProposalEvent['eventType'], TreasuryProposalStatus> = {
+    proposal_created: 'active',
+    proposal_approved: 'approved',
+    proposal_rejected: 'rejected',
+    proposal_executed: 'executed',
+    proposal_expired: 'expired',
+  };
+
+  const newStatus = statusMap[event.eventType];
+
+  const [row] = await db
+    .insert(treasuryProposals)
+    .values({
+      contractId: event.contractId,
+      proposalId: event.proposalId,
+      status: newStatus,
+      approvalsCount: event.approvalsCount ?? 0,
+      rejectionsCount: event.rejectionsCount ?? 0,
+    })
+    .onConflictDoUpdate({
+      target: [treasuryProposals.contractId, treasuryProposals.proposalId],
+      set: {
+        status: newStatus,
+        approvalsCount:
+          event.approvalsCount !== undefined
+            ? event.approvalsCount
+            : sql`${treasuryProposals.approvalsCount}`,
+        rejectionsCount:
+          event.rejectionsCount !== undefined
+            ? event.rejectionsCount
+            : sql`${treasuryProposals.rejectionsCount}`,
+        updatedAt: sql`now()`,
+      },
+    })
+    .returning();
+
+  if (!row) return;
+
+  const payload = {
+    proposalId: row.proposalId,
+    status: row.status,
+    approvalsCount: row.approvalsCount,
+    rejectionsCount: row.rejectionsCount,
+  };
+
+  // Emit to the linked conversation room if known; fall back to a contract-scoped room.
+  const room = row.conversationId ?? `treasury:${row.contractId}`;
+  getSocketServer()?.to(room).emit('treasury_proposal_updated', payload);
+}
+
+/**
  * Run the listener loop until `signal` aborts (or process exit). Never
  * throws — RPC / DB errors are logged and the loop backs off.
  */
 export async function runForever(deps: StellarListenerDeps): Promise<void> {
   const log = deps.log ?? consoleLogger;
   const persist = deps.persistEvent ?? defaultPersistEvent;
+  const persistTreasury = deps.persistTreasuryEvent ?? defaultPersistTreasuryEvent;
   const pollMs = deps.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const backoffBase = deps.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
   const backoffMax = deps.backoffMaxMs ?? DEFAULT_BACKOFF_MAX_MS;
 
   let cursor: string | null = null;
+  let treasuryCursor: string | null = null;
   let consecutiveFailures = 0;
 
   log.info('listener starting');
@@ -160,13 +240,26 @@ export async function runForever(deps: StellarListenerDeps): Promise<void> {
           await persist(event);
           cursor = event.cursor;
         } catch (err) {
-          // Per-event failure: log and move on so one bad row doesn't
-          // freeze the cursor. cursor is NOT advanced here so the next
-          // poll retries.
           log.warn('failed to persist event', {
             txHash: event.txHash,
             error: err instanceof Error ? err.message : String(err),
           });
+        }
+      }
+
+      // Poll treasury events when a fetcher is provided (#130).
+      if (deps.fetchTreasuryEvents) {
+        const treasuryEvents = await deps.fetchTreasuryEvents(treasuryCursor);
+        for (const event of treasuryEvents) {
+          try {
+            await persistTreasury(event);
+            treasuryCursor = event.cursor;
+          } catch (err) {
+            log.warn('failed to persist treasury event', {
+              proposalId: event.proposalId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
         }
       }
 
@@ -264,6 +357,80 @@ export function buildRpcFetcher(opts: {
         }
 
         return event;
+      });
+  };
+}
+
+/**
+ * Build a fetcher for GROUP_TREASURY_CONTRACT_ID multisig proposal events (#130).
+ * Listens for: proposal_created, proposal_approved, proposal_rejected,
+ * proposal_executed, proposal_expired.
+ */
+export function buildTreasuryRpcFetcher(opts: {
+  rpcUrl: string;
+  contractId: string;
+  pageSize?: number;
+}): NonNullable<StellarListenerDeps['fetchTreasuryEvents']> {
+  const server = new rpc.Server(opts.rpcUrl, { allowHttp: opts.rpcUrl.startsWith('http://') });
+  const pageSize = opts.pageSize ?? 100;
+
+  const TREASURY_TOPICS = [
+    'proposal_created',
+    'proposal_approved',
+    'proposal_rejected',
+    'proposal_executed',
+    'proposal_expired',
+  ] as const;
+
+  type EventType = (typeof TREASURY_TOPICS)[number];
+
+  type RpcEvent = {
+    contractId?: string;
+    topic?: string[];
+    value?: { id?: string | number; approvals?: number; rejections?: number };
+    pagingToken?: string;
+  };
+
+  const eventServer = server as unknown as {
+    getEvents: (request: {
+      startLedger: undefined;
+      cursor: string | undefined;
+      filters: Array<{ type: 'contract'; contractIds: string[]; topics: string[][] }>;
+      limit: number;
+    }) => Promise<{ events?: RpcEvent[] }>;
+  };
+
+  return async (cursor) => {
+    const response = await eventServer.getEvents({
+      startLedger: undefined,
+      cursor: cursor ?? undefined,
+      filters: [
+        {
+          type: 'contract',
+          contractIds: [opts.contractId],
+          topics: [TREASURY_TOPICS as unknown as string[]],
+        },
+      ],
+      limit: pageSize,
+    });
+
+    const events = response.events ?? [];
+
+    return events
+      .filter((e) => {
+        const topic = e.topic?.[0];
+        return e.value?.id != null && TREASURY_TOPICS.includes(topic as EventType);
+      })
+      .map((e) => {
+        const eventType = e.topic![0] as EventType;
+        return {
+          contractId: e.contractId ?? opts.contractId,
+          eventType,
+          proposalId: String(e.value!.id),
+          approvalsCount: e.value?.approvals,
+          rejectionsCount: e.value?.rejections,
+          cursor: e.pagingToken ?? '',
+        } satisfies TreasuryProposalEvent;
       });
   };
 }

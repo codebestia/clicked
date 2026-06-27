@@ -17,11 +17,16 @@ on:
     paths:
       - 'contracts/**'
       - '.github/workflows/contracts-ci.yml'
+  schedule:
+    - cron: '0 8 * * 1'  # Every Monday at 08:00 UTC
 
 jobs:
   test-and-build:
     name: cargo test + build (wasm32)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
 
     defaults:
       run:
@@ -53,3 +58,106 @@ jobs:
 
       - name: cargo build (release wasm32)
         run: cargo build -p token_transfer --target wasm32-unknown-unknown --release
+
+      - name: Install GitHub CLI
+        run: sudo apt-get update && sudo apt-get install -y gh
+
+      - name: Report WASM binary sizes
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+
+          # Collect sizes for all release WASMs
+          WASM_DIR="target/wasm32-unknown-unknown/release"
+          TABLE="| Contract | Size (bytes) | Size (KB) |\n|---|---|---|\n"
+          THRESHOLD_BYTES=102400  # 100 KB
+
+          FAILED=0
+          for wasm in "$WASM_DIR"/*.wasm; do
+            [ -f "$wasm" ] || continue
+            name=$(basename "$wasm")
+            bytes=$(wc -c < "$wasm")
+            kb=$(echo "scale=2; $bytes / 1024" | bc)
+            TABLE="${TABLE}| \`${name}\` | ${bytes} | ${kb} KB |\n"
+            if [ "$bytes" -gt "$THRESHOLD_BYTES" ]; then
+              echo "::error file=${name}::WASM size ${bytes} bytes exceeds ${THRESHOLD_BYTES} byte limit"
+              FAILED=1
+            fi
+          done
+
+          # Write to job summary
+          printf "## WASM Binary Sizes\n\n${TABLE}\n" >> "$GITHUB_STEP_SUMMARY"
+
+          # Update-in-place PR comment
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BODY=$(printf "<!-- wasm-size-report -->\n## WASM Binary Sizes\n\n${TABLE}")
+            # Find existing comment
+            COMMENT_ID=$(gh api \
+              repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+              --jq '.[] | select(.body | startswith("<!-- wasm-size-report -->")) | .id' \
+              2>/dev/null | head -1) || true
+            if [ -n "$COMMENT_ID" ]; then
+              gh api --method PATCH \
+                repos/${{ github.repository }}/issues/comments/"$COMMENT_ID" \
+                -f body="$BODY" || true
+            else
+              gh api --method POST \
+                repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+                -f body="$BODY" || true
+            fi
+          fi
+
+          exit $FAILED
+
+  clippy:
+    name: cargo clippy (wasm32)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            contracts/target
+          key: ${{ runner.os }}-cargo-contracts-${{ hashFiles('contracts/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-contracts-
+
+      - name: cargo clippy (wasm32, zero warnings)
+        run: cargo clippy --workspace --target wasm32-unknown-unknown -- -D warnings -A dead_code -A clippy::too-many-arguments
+
+  audit:
+    name: cargo audit (security)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        run: cargo audit

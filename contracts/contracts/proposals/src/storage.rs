@@ -12,6 +12,7 @@ pub enum DataKey {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProposalStatus {
     Active,
+    Approved,
     Passed,
     Rejected,
     Executed,
@@ -28,7 +29,14 @@ pub struct Proposal {
     pub yes_votes: u32,
     pub no_votes: u32,
     pub status: ProposalStatus,
+
+    // Withdrawal execution parameters.
+    pub treasury: Address,
+    pub token: Address,
+    pub to: Address,
+    pub amount: i128,
 }
+
 
 // ── Events ───────────────────────────────────────────────────────────────────
 
@@ -38,7 +46,13 @@ pub struct ProposalCreatedEvent {
     pub id: u64,
     pub proposer: Address,
     pub expires_at: u64,
+
+    pub treasury: Address,
+    pub token: Address,
+    pub to: Address,
+    pub amount: i128,
 }
+
 
 #[contracttype]
 #[derive(Clone)]

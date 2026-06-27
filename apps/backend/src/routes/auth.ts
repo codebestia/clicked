@@ -4,8 +4,8 @@ import type { Request, Response, IRouter } from 'express';
 import rateLimit, { type RateLimitRequestHandler } from 'express-rate-limit';
 import { Keypair } from '@stellar/stellar-sdk';
 import { db } from '../db/index.js';
-import { users, wallets } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { users, wallets, devices } from '../db/schema.js';
+import { eq, and } from 'drizzle-orm';
 import { createNonce, consumeNonce } from '../lib/nonce.js';
 import { signToken } from '../lib/jwt.js';
 import { validate } from '../middleware/validate.js';
@@ -57,7 +57,7 @@ authRouter.post(
   verifyLimiter,
   validate(VerifySchema),
   async (req: Request, res: Response) => {
-    const { walletAddress, signature, nonce } = req.body as VerifyBody;
+    const { walletAddress, signature, nonce, identityPublicKey } = req.body as VerifyBody;
 
     // Validate and consume nonce
     const valid = consumeNonce(walletAddress, nonce);
@@ -110,7 +110,32 @@ authRouter.post(
       await db.insert(wallets).values({ userId, address: walletAddress, isPrimary: true });
     }
 
-    const token = signToken({ userId, walletAddress });
+    // Resolve the device for this (userId, identityPublicKey) pair.
+    // If the device is revoked, refuse sign-in immediately.
+    let deviceId: string;
+    const existingDevice = await db.query.devices.findFirst({
+      where: and(eq(devices.userId, userId), eq(devices.identityPublicKey, identityPublicKey)),
+    });
+
+    if (existingDevice) {
+      if (existingDevice.isRevoked) {
+        res.status(401).json({ error: 'Device has been revoked' });
+        return;
+      }
+      deviceId = existingDevice.id;
+    } else {
+      const [newDevice] = await db
+        .insert(devices)
+        .values({ userId, identityPublicKey })
+        .returning({ id: devices.id });
+      if (!newDevice) {
+        res.status(500).json({ error: 'Failed to register device' });
+        return;
+      }
+      deviceId = newDevice.id;
+    }
+
+    const token = signToken({ userId, walletAddress, deviceId });
     res.json({ token });
   },
 );

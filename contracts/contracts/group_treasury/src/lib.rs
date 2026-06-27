@@ -6,8 +6,8 @@ mod token_interface;
 
 use soroban_sdk::{contract, contractimpl, Address, Env, Map, Symbol, Vec};
 use storage::{
-    DataKey, DepositEvent, MemberAddedEvent, MemberRemovedEvent, ProposalCreatedEvent,
-    ProposalStatus, WithdrawEvent, WithdrawProposal,
+    DataKey, DepositEvent, MemberAddedEvent, MemberRemovedEvent, ProposalApprovedEvent,
+    ProposalRejectedEvent, ProposalStatus, WithdrawEvent, WithdrawProposal, WithdrawVoteCastEvent,
 };
 use token_interface::TokenClient;
 
@@ -26,16 +26,33 @@ pub struct GroupTreasuryContract;
 
 #[contractimpl]
 impl GroupTreasuryContract {
-    /// One-time initialisation. Sets the admin and sets up the balances map and members set.
-    pub fn initialize(env: Env, admin: Address, _token: Address) {
+    /// One-time initialisation. Sets the admin, the approval `threshold`, and sets up the
+    /// balances map and members set. `threshold` is the number of approvals required to
+    /// execute a withdraw proposal and must be at least 1.
+    pub fn initialize(env: Env, admin: Address, _token: Address, threshold: u32) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
+        if threshold == 0 {
+            panic!("threshold must be at least 1");
+        }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::Threshold, &threshold);
+        env.storage().instance().set(&DataKey::ProposalCount, &0u32);
         let balances: Map<Address, i128> = Map::new(&env);
         env.storage().instance().set(&DataKey::Balances, &balances);
         let members: Vec<Address> = Vec::new(&env);
         env.storage().instance().set(&DataKey::Members, &members);
+    }
+
+    /// Returns the configured approval threshold.
+    pub fn get_threshold(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::Threshold)
+            .expect("not initialized")
     }
 
     /// Admin-only: Add a new member to the treasury.
@@ -194,85 +211,138 @@ impl GroupTreasuryContract {
         balances.get(token).unwrap_or(0)
     }
 
-    /// Member-only: Create a withdrawal proposal. Returns the new proposal ID.
-    pub fn propose_withdraw(
-        env: Env,
-        proposer: Address,
-        to: Address,
-        token: Address,
-        amount: i128,
-        ttl_ledgers: u32,
-    ) -> u32 {
-        proposer.require_auth();
+    /// Member-only: approve a pending withdraw proposal. Each member may vote at
+    /// most once per proposal. When the running approval count reaches the
+    /// configured `threshold` the proposal transitions to `Passed` (approved)
+    /// and a `ProposalApprovedEvent` is emitted.
+    pub fn approve_withdraw(env: Env, approver: Address, proposal_id: u32) {
+        let mut proposal = Self::require_votable(&env, &approver, proposal_id);
 
-        // Verify proposer is a member
-        let members: Vec<Address> = env
+        env.storage()
+            .instance()
+            .set(&DataKey::Vote(proposal_id, approver.clone()), &true);
+
+        proposal.approvals += 1;
+
+        let threshold: u32 = env
             .storage()
             .instance()
-            .get(&DataKey::Members)
-            .unwrap_or_else(|| Vec::new(&env));
-        let is_member = members.iter().any(|m| m == proposer);
-        if !is_member {
+            .get(&DataKey::Threshold)
+            .expect("not initialized");
+
+        if proposal.approvals >= threshold {
+            proposal.status = ProposalStatus::Passed;
+            env.events().publish(
+                (Symbol::new(&env, "proposal_approved"),),
+                ProposalApprovedEvent {
+                    id: proposal_id,
+                    approvals: proposal.approvals,
+                    threshold,
+                },
+            );
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Proposal(proposal_id), &proposal);
+
+        env.events().publish(
+            (Symbol::new(&env, "withdraw_vote"),),
+            WithdrawVoteCastEvent {
+                id: proposal_id,
+                voter: approver,
+                approve: true,
+            },
+        );
+    }
+
+    /// Member-only: reject a pending withdraw proposal. Each member may vote at
+    /// most once per proposal. When the rejection count reaches the blocking
+    /// minority — the point at which the remaining members can no longer reach
+    /// `threshold` approvals — the proposal transitions to `Rejected` and a
+    /// `ProposalRejectedEvent` is emitted.
+    pub fn reject_withdraw(env: Env, rejecter: Address, proposal_id: u32) {
+        let mut proposal = Self::require_votable(&env, &rejecter, proposal_id);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Vote(proposal_id, rejecter.clone()), &false);
+
+        proposal.rejections += 1;
+
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::Threshold)
+            .expect("not initialized");
+        let member_count = Self::get_members(env.clone()).len();
+        // Approval becomes impossible once fewer than `threshold` members remain
+        // un-rejected, i.e. once rejections > member_count - threshold.
+        let blocking_minority = member_count.saturating_sub(threshold) + 1;
+
+        if proposal.rejections >= blocking_minority {
+            proposal.status = ProposalStatus::Rejected;
+            env.events().publish(
+                (Symbol::new(&env, "proposal_rejected"),),
+                ProposalRejectedEvent {
+                    id: proposal_id,
+                    rejections: proposal.rejections,
+                },
+            );
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Proposal(proposal_id), &proposal);
+
+        env.events().publish(
+            (Symbol::new(&env, "withdraw_vote"),),
+            WithdrawVoteCastEvent {
+                id: proposal_id,
+                voter: rejecter,
+                approve: false,
+            },
+        );
+    }
+
+    /// Returns the withdraw proposal with the given id. Panics if it does not exist.
+    pub fn get_proposal(env: Env, proposal_id: u32) -> WithdrawProposal {
+        env.storage()
+            .instance()
+            .get(&DataKey::Proposal(proposal_id))
+            .expect("proposal not found")
+    }
+
+    /// Shared validation for voting: authenticates the voter, confirms
+    /// membership, loads the proposal, and ensures it is pending, not expired,
+    /// and not already voted on by this address. Returns the loaded proposal.
+    fn require_votable(env: &Env, voter: &Address, proposal_id: u32) -> WithdrawProposal {
+        voter.require_auth();
+
+        if !Self::is_member(env.clone(), voter.clone()) {
             panic!("not a member");
         }
 
-        // Verify amount > 0
-        if amount <= 0 {
-            panic!("amount must be positive");
-        }
-
-        // Verify sufficient treasury balance
-        let balances: Map<Address, i128> = env
+        let proposal: WithdrawProposal = env
             .storage()
             .instance()
-            .get(&DataKey::Balances)
-            .unwrap_or_else(|| Map::new(&env));
-        let current = balances.get(token.clone()).unwrap_or(0);
-        if current < amount {
-            panic!("insufficient funds");
-        }
+            .get(&DataKey::Proposal(proposal_id))
+            .expect("proposal not found");
 
-        // Increment proposal count and get new ID
-        let id: u32 = env
+        if proposal.status != ProposalStatus::Active {
+            panic!("proposal is not pending");
+        }
+        if env.ledger().timestamp() >= proposal.expires_at {
+            panic!("proposal expired");
+        }
+        if env
             .storage()
             .instance()
-            .get(&DataKey::ProposalCount)
-            .unwrap_or(0_u32)
-            + 1;
-        env.storage().instance().set(&DataKey::ProposalCount, &id);
+            .has(&DataKey::Vote(proposal_id, voter.clone()))
+        {
+            panic!("already voted");
+        }
 
-        let expires_at = env.ledger().sequence() + ttl_ledgers;
-
-        // Auto-add proposer's approval
-        let mut approvals: Vec<Address> = Vec::new(&env);
-        approvals.push_back(proposer.clone());
-
-        let proposal = WithdrawProposal {
-            id,
-            proposer: proposer.clone(),
-            to: to.clone(),
-            token: token.clone(),
-            amount,
-            approvals,
-            status: ProposalStatus::Pending,
-            expires_at,
-        };
-        env.storage()
-            .instance()
-            .set(&DataKey::Proposal(id), &proposal);
-
-        env.events().publish(
-            (Symbol::new(&env, "proposal_created"),),
-            ProposalCreatedEvent {
-                id,
-                proposer,
-                to,
-                token,
-                amount,
-                expires_at,
-            },
-        );
-
-        id
+        proposal
     }
 }

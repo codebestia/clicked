@@ -1,7 +1,11 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, Address, Env};
+use crate::storage::{DataKey, ProposalStatus, WithdrawProposal};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger as _},
+    Address, Env,
+};
 
 // ── Minimal mock token contract ───────────────────────────────────────────────
 
@@ -59,7 +63,7 @@ fn setup(env: &Env) -> (Address, Address, Address, Address) {
 
     let contract_id = env.register(GroupTreasuryContract, ());
     let client = GroupTreasuryContractClient::new(env, &contract_id);
-    client.initialize(&admin, &token_id);
+    client.initialize(&admin, &token_id, &1);
 
     (contract_id, token_id, admin, member)
 }
@@ -79,7 +83,7 @@ fn test_double_initialize_panics() {
     let (contract_id, token_id, _admin, _member) = setup(&env);
     let client = GroupTreasuryContractClient::new(&env, &contract_id);
     let other = Address::generate(&env);
-    client.initialize(&other, &token_id);
+    client.initialize(&other, &token_id, &1);
 }
 
 #[test]
@@ -160,7 +164,7 @@ fn test_non_admin_cannot_withdraw() {
 
     let contract_id = env.register(GroupTreasuryContract, ());
     let client = GroupTreasuryContractClient::new(&env, &contract_id);
-    client.initialize(&admin, &token_id);
+    client.initialize(&admin, &token_id, &1);
 
     let recipient = Address::generate(&env);
     // admin.require_auth() inside withdraw will fail — no auth context set up.
@@ -197,7 +201,7 @@ fn test_multi_token_deposits_tracked_separately() {
 
     let contract_id = env.register(GroupTreasuryContract, ());
     let client = GroupTreasuryContractClient::new(&env, &contract_id);
-    client.initialize(&admin, &xlm_id); // initialize with XLM for compatibility
+    client.initialize(&admin, &xlm_id, &1); // initialize with XLM for compatibility
 
     // Deposit XLM and USDC
     client.deposit(&member, &xlm_id, &40_000);
@@ -262,7 +266,7 @@ fn test_non_admin_cannot_add_member() {
     let token_id = env.register(mock_token::MockToken, ());
     let contract_id = env.register(GroupTreasuryContract, ());
     let client = GroupTreasuryContractClient::new(&env, &contract_id);
-    client.initialize(&admin, &token_id);
+    client.initialize(&admin, &token_id, &1);
 
     // non_admin tries to add member - should fail due to auth
     client.add_member(&member);
@@ -336,71 +340,257 @@ fn test_initialize_creates_empty_members_list() {
     assert_eq!(members.len(), 0);
 }
 
-// ── propose_withdraw Tests ────────────────────────────────────────────────────
+// ── Threshold Tests ───────────────────────────────────────────────────────────
 
 #[test]
-fn test_propose_withdraw_returns_id_and_stores_proposal() {
+fn test_get_threshold_returns_configured_value() {
     let env = Env::default();
+
+    let admin = Address::generate(&env);
+    let token_id = env.register(mock_token::MockToken, ());
+
+    let contract_id = env.register(GroupTreasuryContract, ());
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+    client.initialize(&admin, &token_id, &3);
+
+    assert_eq!(client.get_threshold(), 3);
+}
+
+#[test]
+#[should_panic(expected = "threshold must be at least 1")]
+fn test_initialize_zero_threshold_panics() {
+    let env = Env::default();
+
+    let admin = Address::generate(&env);
+    let token_id = env.register(mock_token::MockToken, ());
+
+    let contract_id = env.register(GroupTreasuryContract, ());
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+    client.initialize(&admin, &token_id, &0);
+}
+
+// ── Voting Tests (approve_withdraw / reject_withdraw) ──────────────────────────
+
+/// Registers a treasury initialised with `threshold`, mocks all auths, and adds
+/// `num_members` members. Returns (contract_id, token_id, members).
+fn voting_setup(
+    env: &Env,
+    threshold: u32,
+    num_members: u32,
+) -> (Address, Address, soroban_sdk::Vec<Address>) {
     env.mock_all_auths();
 
-    let (contract_id, token_id, admin, member) = setup(&env);
+    let admin = Address::generate(env);
+    let token_id = env.register(mock_token::MockToken, ());
+    let contract_id = env.register(GroupTreasuryContract, ());
+    let client = GroupTreasuryContractClient::new(env, &contract_id);
+    client.initialize(&admin, &token_id, &threshold);
+
+    let mut members = soroban_sdk::Vec::new(env);
+    for _ in 0..num_members {
+        let member = Address::generate(env);
+        client.add_member(&member);
+        members.push_back(member);
+    }
+
+    (contract_id, token_id, members)
+}
+
+/// Writes a pending `WithdrawProposal` straight into contract storage. Stands in
+/// for `propose_withdraw` (#122), which is not implemented yet.
+fn seed_proposal(
+    env: &Env,
+    contract_id: &Address,
+    id: u32,
+    to: &Address,
+    token: &Address,
+    amount: i128,
+    expires_at: u64,
+) {
+    env.as_contract(contract_id, || {
+        let proposal = WithdrawProposal {
+            id,
+            proposer: to.clone(),
+            to: to.clone(),
+            token: token.clone(),
+            amount,
+            approvals: 0,
+            rejections: 0,
+            status: ProposalStatus::Active,
+            expires_at,
+        };
+        env.storage()
+            .instance()
+            .set(&DataKey::Proposal(id), &proposal);
+    });
+}
+
+#[test]
+fn test_approve_reaches_threshold_passes() {
+    let env = Env::default();
+    let (contract_id, token_id, members) = voting_setup(&env, 2, 2);
     let client = GroupTreasuryContractClient::new(&env, &contract_id);
-
-    client.add_member(&member);
-    client.deposit(&member, &token_id, &500_000);
-
     let recipient = Address::generate(&env);
-    let id = client.propose_withdraw(&member, &recipient, &token_id, &100_000, &100);
-    assert_eq!(id, 1);
+    seed_proposal(&env, &contract_id, 0, &recipient, &token_id, 1_000, 10_000);
+
+    client.approve_withdraw(&members.get(0).unwrap(), &0);
+    let after_first = client.get_proposal(&0);
+    assert_eq!(after_first.approvals, 1);
+    assert_eq!(after_first.status, ProposalStatus::Active);
+
+    client.approve_withdraw(&members.get(1).unwrap(), &0);
+    let after_second = client.get_proposal(&0);
+    assert_eq!(after_second.approvals, 2);
+    assert_eq!(after_second.status, ProposalStatus::Passed);
+}
+
+#[test]
+fn test_single_approval_below_threshold_stays_active() {
+    let env = Env::default();
+    let (contract_id, token_id, members) = voting_setup(&env, 2, 2);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+    seed_proposal(&env, &contract_id, 0, &recipient, &token_id, 1_000, 10_000);
+
+    client.approve_withdraw(&members.get(0).unwrap(), &0);
+
+    let proposal = client.get_proposal(&0);
+    assert_eq!(proposal.approvals, 1);
+    assert_eq!(proposal.status, ProposalStatus::Active);
+}
+
+#[test]
+#[should_panic(expected = "already voted")]
+fn test_double_vote_panics() {
+    let env = Env::default();
+    let (contract_id, token_id, members) = voting_setup(&env, 2, 2);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+    seed_proposal(&env, &contract_id, 0, &recipient, &token_id, 1_000, 10_000);
+
+    let voter = members.get(0).unwrap();
+    client.approve_withdraw(&voter, &0);
+    client.approve_withdraw(&voter, &0); // second vote must panic
+}
+
+#[test]
+#[should_panic(expected = "already voted")]
+fn test_approve_then_reject_same_member_panics() {
+    let env = Env::default();
+    let (contract_id, token_id, members) = voting_setup(&env, 2, 2);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+    seed_proposal(&env, &contract_id, 0, &recipient, &token_id, 1_000, 10_000);
+
+    let voter = members.get(0).unwrap();
+    client.approve_withdraw(&voter, &0);
+    client.reject_withdraw(&voter, &0); // switching vote must panic
 }
 
 #[test]
 #[should_panic(expected = "not a member")]
-fn test_propose_withdraw_non_member_panics() {
+fn test_non_member_approve_panics() {
     let env = Env::default();
-    env.mock_all_auths();
-
-    let (contract_id, token_id, _admin, member) = setup(&env);
+    let (contract_id, token_id, _members) = voting_setup(&env, 1, 1);
     let client = GroupTreasuryContractClient::new(&env, &contract_id);
-
-    client.deposit(&member, &token_id, &500_000);
-
-    let non_member = Address::generate(&env);
     let recipient = Address::generate(&env);
-    // non_member is not in members list — should panic
-    client.propose_withdraw(&non_member, &recipient, &token_id, &100_000, &100);
+    seed_proposal(&env, &contract_id, 0, &recipient, &token_id, 1_000, 10_000);
+
+    let outsider = Address::generate(&env);
+    client.approve_withdraw(&outsider, &0);
 }
 
 #[test]
-#[should_panic(expected = "insufficient funds")]
-fn test_propose_withdraw_insufficient_balance_panics() {
+#[should_panic(expected = "not a member")]
+fn test_non_member_reject_panics() {
     let env = Env::default();
-    env.mock_all_auths();
-
-    let (contract_id, token_id, _admin, member) = setup(&env);
+    let (contract_id, token_id, _members) = voting_setup(&env, 1, 1);
     let client = GroupTreasuryContractClient::new(&env, &contract_id);
-
-    client.add_member(&member);
-    client.deposit(&member, &token_id, &50_000);
-
     let recipient = Address::generate(&env);
-    client.propose_withdraw(&member, &recipient, &token_id, &100_000, &100);
+    seed_proposal(&env, &contract_id, 0, &recipient, &token_id, 1_000, 10_000);
+
+    let outsider = Address::generate(&env);
+    client.reject_withdraw(&outsider, &0);
 }
 
 #[test]
-fn test_propose_withdraw_increments_id() {
+#[should_panic(expected = "proposal is not pending")]
+fn test_vote_on_non_pending_panics() {
     let env = Env::default();
-    env.mock_all_auths();
+    // threshold 1: the first approval flips the proposal to Passed.
+    let (contract_id, token_id, members) = voting_setup(&env, 1, 2);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+    seed_proposal(&env, &contract_id, 0, &recipient, &token_id, 1_000, 10_000);
 
-    let (contract_id, token_id, _admin, member) = setup(&env);
+    client.approve_withdraw(&members.get(0).unwrap(), &0);
+    assert_eq!(client.get_proposal(&0).status, ProposalStatus::Passed);
+
+    // A different member voting on the now-approved proposal must panic.
+    client.approve_withdraw(&members.get(1).unwrap(), &0);
+}
+
+#[test]
+#[should_panic(expected = "proposal expired")]
+fn test_vote_on_expired_panics() {
+    let env = Env::default();
+    let (contract_id, token_id, members) = voting_setup(&env, 2, 2);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+    seed_proposal(&env, &contract_id, 0, &recipient, &token_id, 1_000, 100);
+
+    env.ledger().set_timestamp(200); // past expires_at
+    client.approve_withdraw(&members.get(0).unwrap(), &0);
+}
+
+#[test]
+fn test_reject_blocking_minority_rejects() {
+    let env = Env::default();
+    // threshold 2 of 3 members → blocking minority = 3 - 2 + 1 = 2 rejections.
+    let (contract_id, token_id, members) = voting_setup(&env, 2, 3);
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+    let recipient = Address::generate(&env);
+    seed_proposal(&env, &contract_id, 0, &recipient, &token_id, 1_000, 10_000);
+
+    client.reject_withdraw(&members.get(0).unwrap(), &0);
+    let after_first = client.get_proposal(&0);
+    assert_eq!(after_first.rejections, 1);
+    assert_eq!(after_first.status, ProposalStatus::Active);
+
+    client.reject_withdraw(&members.get(1).unwrap(), &0);
+    let after_second = client.get_proposal(&0);
+    assert_eq!(after_second.rejections, 2);
+    assert_eq!(after_second.status, ProposalStatus::Rejected);
+}
+
+#[test]
+#[should_panic(expected = "proposal not found")]
+fn test_approve_unknown_proposal_panics() {
+    let env = Env::default();
+    let (contract_id, _token_id, members) = voting_setup(&env, 1, 1);
     let client = GroupTreasuryContractClient::new(&env, &contract_id);
 
-    client.add_member(&member);
-    client.deposit(&member, &token_id, &500_000);
+    // No proposal seeded; member votes on a non-existent id.
+    client.approve_withdraw(&members.get(0).unwrap(), &0);
+}
 
+#[test]
+#[should_panic]
+fn test_vote_without_auth_panics() {
+    let env = Env::default();
+    // Set up without mock_all_auths so require_auth fails.
+    let admin = Address::generate(&env);
+    let member = Address::generate(&env);
+    let token_id = env.register(mock_token::MockToken, ());
+    let contract_id = env.register(GroupTreasuryContract, ());
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+
+    env.mock_all_auths();
+    client.initialize(&admin, &token_id, &1);
+    client.add_member(&member);
     let recipient = Address::generate(&env);
-    let id1 = client.propose_withdraw(&member, &recipient, &token_id, &10_000, &100);
-    let id2 = client.propose_withdraw(&member, &recipient, &token_id, &10_000, &100);
-    assert_eq!(id1, 1);
-    assert_eq!(id2, 2);
+    seed_proposal(&env, &contract_id, 0, &recipient, &token_id, 1_000, 10_000);
+    env.set_auths(&[]); // clear mocked auths — the vote must now fail
+
+    client.approve_withdraw(&member, &0);
 }

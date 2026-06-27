@@ -5,15 +5,17 @@ pub enum DataKey {
     Admin,
     Balances,
     Members,
-    ProposalCount,
-    Proposal(u32),
+    Threshold,          // u32: approvals required to execute a withdraw proposal
+    ProposalCount,      // u32: total proposals created (also next id source)
+    Proposal(u32),      // WithdrawProposal by id
+    Vote(u32, Address), // (proposal_id, voter) -> bool (true = approve, false = reject)
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProposalStatus {
-    Pending,
-    Approved,
+    Active,
+    Passed,
     Rejected,
     Executed,
 }
@@ -26,9 +28,10 @@ pub struct WithdrawProposal {
     pub to: Address,
     pub token: Address,
     pub amount: i128,
-    pub approvals: Vec<Address>,
+    pub approvals: u32,
+    pub rejections: u32,
     pub status: ProposalStatus,
-    pub expires_at: u32,
+    pub expires_at: u64,
 }
 
 #[contracttype]
@@ -55,13 +58,25 @@ pub struct MemberRemovedEvent {
     pub removed_by: Address,
 }
 
+/// Emitted whenever a member casts a vote on a withdraw proposal.
 #[contracttype]
-#[derive(Clone)]
-pub struct ProposalCreatedEvent {
+pub struct WithdrawVoteCastEvent {
     pub id: u32,
-    pub proposer: Address,
-    pub to: Address,
-    pub token: Address,
-    pub amount: i128,
-    pub expires_at: u32,
+    pub voter: Address,
+    pub approve: bool,
+}
+
+/// Emitted when a proposal's approvals reach the configured threshold.
+#[contracttype]
+pub struct ProposalApprovedEvent {
+    pub id: u32,
+    pub approvals: u32,
+    pub threshold: u32,
+}
+
+/// Emitted when a proposal's rejections reach the blocking minority.
+#[contracttype]
+pub struct ProposalRejectedEvent {
+    pub id: u32,
+    pub rejections: u32,
 }

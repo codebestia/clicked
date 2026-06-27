@@ -19,6 +19,8 @@
 mod storage;
 mod test;
 
+mod treasury_interface;
+
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Symbol};
 
 pub use storage::{
@@ -54,11 +56,18 @@ impl ProposalsContract {
         proposer: Address,
         description: String,
         expires_at: u64,
+        treasury: Address,
+        token: Address,
+        to: Address,
+        amount: i128,
     ) -> u64 {
         proposer.require_auth();
         let now = env.ledger().timestamp();
         if expires_at <= now {
             panic!("expires_at must be in the future");
+        }
+        if amount <= 0 {
+            panic!("amount must be positive");
         }
 
         let id: u64 = env
@@ -75,7 +84,13 @@ impl ProposalsContract {
             yes_votes: 0,
             no_votes: 0,
             status: ProposalStatus::Active,
+            treasury: treasury.clone(),
+            token: token.clone(),
+            to: to.clone(),
+            amount,
         };
+
+
         env.storage()
             .instance()
             .set(&DataKey::Proposal(id), &proposal);
@@ -89,8 +104,14 @@ impl ProposalsContract {
                 id,
                 proposer,
                 expires_at,
+                treasury,
+                token,
+                to,
+                amount,
             },
         );
+
+
         id
     }
 
@@ -132,13 +153,14 @@ impl ProposalsContract {
         );
     }
 
-    /// Finalise a proposal after its `expires_at`. Callable by anyone
-    /// — the auto-rejection mechanic from the issue. Sets the status
-    /// to `Passed` when `yes_votes > no_votes`, else `Rejected`. The
-    /// tie (yes_votes == no_votes) breaks toward Rejected per the
-    /// issue's `yes_votes <= no_votes` condition.
+    /// Finalise a proposal after its `expires_at`. Callable by anyone.
+    ///
+    /// Status mapping (required by execute_withdraw acceptance criteria):
+    /// - `yes_votes > no_votes` => `Approved`
+    /// - otherwise => `Rejected`
     pub fn finalize_proposal(env: Env, proposal_id: u64) -> ProposalStatus {
         let mut proposal = Self::load_proposal(&env, proposal_id);
+
         if !matches!(proposal.status, ProposalStatus::Active) {
             panic!("proposal already finalized");
         }
@@ -191,6 +213,70 @@ impl ProposalsContract {
             },
         );
     }
+
+    /// Withdraw from the group treasury for an approved proposal.
+    ///
+    /// Acceptance criteria requirements:
+    /// - caller must be a treasury member
+    /// - proposal must be Approved
+    /// - proposal must not already be Executed
+    /// - treasury must have sufficient balance
+    /// - emits WithdrawEvent (from treasury) and ProposalExecutedEvent (from proposals)
+    pub fn execute_withdraw(env: Env, caller: Address, proposal_id: u64) {
+        caller.require_auth();
+
+        let mut proposal = Self::load_proposal(&env, proposal_id);
+
+        if matches!(proposal.status, ProposalStatus::Executed) {
+            panic!("proposal already executed");
+        }
+        if !matches!(proposal.status, ProposalStatus::Approved) {
+            panic!("proposal not approved");
+        }
+
+
+        // Verify caller is a treasury member.
+        let treasury_client = crate::treasury_interface::TreasuryClient::new(
+            &env,
+            &proposal.treasury,
+        );
+
+        if !treasury_client.is_member(&caller.clone()) {
+            panic!("caller is not a treasury member");
+        }
+
+        // Verify sufficient balance.
+        let bal = treasury_client.balance(&proposal.token.clone());
+        if bal < proposal.amount {
+            panic!("insufficient funds");
+        }
+
+        // Withdraw from the treasury.
+        treasury_client.withdraw(
+            &proposal.to.clone(),
+            &proposal.token.clone(),
+            &proposal.amount,
+        );
+
+
+        // Update proposal status.
+        proposal.status = ProposalStatus::Executed;
+        env.storage()
+            .instance()
+            .set(&DataKey::Proposal(proposal_id), &proposal);
+
+        // Emit proposal execution event.
+        env.events().publish(
+            (symbol_short!("execut"),),
+            ProposalExecutedEvent {
+                id: proposal_id,
+                executor: caller,
+            },
+        );
+
+    }
+
+
 
     pub fn get_proposal(env: Env, proposal_id: u64) -> Proposal {
         Self::load_proposal(&env, proposal_id)
