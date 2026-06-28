@@ -31,6 +31,7 @@ vi.mock('../db/index.js', () => ({
       conversationMembers: { findMany: mockFindMembers },
     },
     update: mockUpdate,
+    delete: vi.fn(() => ({ where: vi.fn() })),
   },
 }));
 
@@ -45,6 +46,7 @@ vi.mock('../db/schema.js', () => ({
     createdAt: 'createdAt',
     deletedAt: 'deletedAt',
   },
+  messageEnvelopes: { messageId: 'messageId' },
   tokenTransfers: {},
 }));
 
@@ -111,7 +113,7 @@ describe('DELETE /messages/:id', () => {
     const res = await request(makeApp()).delete('/messages/msg-1');
 
     expect(res.status).toBe(204);
-    expect(setFn).toHaveBeenCalledWith({ deletedAt: expect.any(Date) });
+    expect(setFn).toHaveBeenCalledWith({ deletedAt: expect.any(Date), ciphertext: null });
     expect(mockTo).toHaveBeenCalledWith('conv-1');
     expect(mockEmit).toHaveBeenCalledWith('message_deleted', {
       messageId: 'msg-1',

@@ -39,9 +39,7 @@ messagesRouter.delete('/:id', async (req: AuthRequest, res) => {
     .set({ deletedAt: new Date(), ciphertext: null })
     .where(and(eq(messages.id, messageId), eq(messages.senderId, userId)));
 
-  await db
-    .delete(messageEnvelopes)
-    .where(eq(messageEnvelopes.messageId, messageId));
+  await db.delete(messageEnvelopes).where(eq(messageEnvelopes.messageId, messageId));
 
   getSocketServer()?.to(message.conversationId).emit('message_deleted', {
     messageId: message.id,

@@ -1,7 +1,7 @@
 type MessageLike = {
   ciphertext?: string | null;
   deletedAt?: Date | null;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 export function serializeMessage<T extends MessageLike>(

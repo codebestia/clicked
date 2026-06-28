@@ -15,8 +15,6 @@ export const conversationsRouter: IRouter = Router();
 
 conversationsRouter.use(requireAuth);
 
-const SEARCH_RESULT_LIMIT = 20;
-
 const conversationRelations = {
   members: {
     with: {
@@ -96,7 +94,12 @@ conversationsRouter.get('/', async (req: AuthRequest, res) => {
     with: {
       conversation: conversationRelations as never,
     },
-  })) as unknown as Array<{ conversationId: string; conversation: ConversationPayload; isMuted: boolean; isArchived: boolean }>;
+  })) as unknown as Array<{
+    conversationId: string;
+    conversation: ConversationPayload;
+    isMuted: boolean;
+    isArchived: boolean;
+  }>;
 
   // Single subquery for message counts — no N+1
   const conversationIds = memberships.map((m) => m.conversationId);
@@ -472,12 +475,12 @@ conversationsRouter.get('/:id/messages', async (req: AuthRequest, res) => {
       : eq(messages.conversationId, conversationId),
     orderBy: desc(messages.createdAt),
     limit: limit + 1,
-    with: { 
+    with: {
       sender: { columns: { id: true, username: true, avatarUrl: true } },
       envelopes: {
         where: eq(messageEnvelopes.recipientDeviceId, req.auth!.deviceId),
         limit: 1,
-      }
+      },
     },
   });
 
@@ -490,7 +493,7 @@ conversationsRouter.get('/:id/messages', async (req: AuthRequest, res) => {
   const nextCursor = hasMore ? (page[0]?.id ?? null) : null;
 
   const serializedPage = page.map((msg) => {
-    let resolvedCiphertext: string | null = null;
+    let resolvedCiphertext: string | null;
     if (msg.envelopes && msg.envelopes.length > 0) {
       resolvedCiphertext = msg.envelopes[0]!.ciphertext;
     } else if (msg.ciphertext) {
@@ -499,6 +502,7 @@ conversationsRouter.get('/:id/messages', async (req: AuthRequest, res) => {
       resolvedCiphertext = 'unavailable';
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { envelopes, ...rest } = msg;
     return serializeMessage({ ...rest, ciphertext: resolvedCiphertext });
   });

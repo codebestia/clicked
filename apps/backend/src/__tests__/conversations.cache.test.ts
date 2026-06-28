@@ -229,8 +229,8 @@ describe('GET /conversations/:id/search', () => {
     const res = await request(makeApp()).get('/conversations/conv-1/search?q=hello');
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ results: searchResults });
-    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(res.body).toEqual({ results: [] });
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 });
 

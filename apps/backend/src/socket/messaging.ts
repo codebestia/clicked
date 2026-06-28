@@ -2,7 +2,7 @@ import type { Server } from 'socket.io';
 import { randomUUID } from 'node:crypto';
 import { and, eq, lt, desc, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { conversations, conversationMembers, messages, messageEnvelopes, devices } from '../db/schema.js';
+import { conversations, conversationMembers, messages, messageEnvelopes } from '../db/schema.js';
 import type { AuthSocket } from '../middleware/socketAuth.js';
 import { invalidateConversationCaches } from '../lib/conversationCache.js';
 import { serializeMessage } from '../lib/messages.js';
@@ -70,12 +70,19 @@ export function registerMessagingHandlers(io: Server, socket: AuthSocket): void 
       });
 
       if (!membership) {
-        socket.emit('error', { event: 'send_message', message: 'Not a member of this conversation' });
+        socket.emit('error', {
+          event: 'send_message',
+          message: 'Not a member of this conversation',
+        });
         return;
       }
 
       try {
-        const insertResult = await db.execute<{ id: string; sequence_number: number; created_at: Date }>(sql`
+        const insertResult = await db.execute<{
+          id: string;
+          sequence_number: number;
+          created_at: Date;
+        }>(sql`
           INSERT INTO messages (id, conversation_id, sender_id, sender_device_id, content_type, ciphertext, sequence_number)
           VALUES (
             ${messageId}::uuid,
@@ -96,7 +103,7 @@ export function registerMessagingHandlers(io: Server, socket: AuthSocket): void 
             where: eq(messages.id, messageId),
           });
           if (existing) {
-             socket.emit('message_ack', { messageId, sequenceNumber: existing.sequenceNumber });
+            socket.emit('message_ack', { messageId, sequenceNumber: existing.sequenceNumber });
           }
           return;
         }
@@ -104,19 +111,22 @@ export function registerMessagingHandlers(io: Server, socket: AuthSocket): void 
         const messageData = insertResult[0];
 
         if (envelopes.length > 0) {
-          const deviceIds = envelopes.map(e => e.recipientDeviceId);
+          const deviceIds = envelopes.map((e) => e.recipientDeviceId);
           const devicesList = await db.query.devices.findMany({
-            where: sql`id = ANY(ARRAY[${sql.join(deviceIds.map(d => sql`${d}::uuid`), sql`, `)}])`
+            where: sql`id = ANY(ARRAY[${sql.join(
+              deviceIds.map((d) => sql`${d}::uuid`),
+              sql`, `,
+            )}])`,
           });
-          const deviceUserMap = new Map(devicesList.map(d => [d.id, d.userId]));
-          
+          const deviceUserMap = new Map(devicesList.map((d) => [d.id, d.userId]));
+
           const envelopeValues = envelopes
-            .filter(e => deviceUserMap.has(e.recipientDeviceId))
-            .map(e => ({
+            .filter((e) => deviceUserMap.has(e.recipientDeviceId))
+            .map((e) => ({
               messageId,
               recipientDeviceId: e.recipientDeviceId,
               recipientUserId: deviceUserMap.get(e.recipientDeviceId)!,
-              ciphertext: e.ciphertext
+              ciphertext: e.ciphertext,
             }));
 
           if (envelopeValues.length > 0) {
@@ -142,7 +152,7 @@ export function registerMessagingHandlers(io: Server, socket: AuthSocket): void 
         console.error('send_message error:', error);
         socket.emit('error', { event: 'send_message', message: 'Failed to send message' });
       }
-    }
+    },
   );
 
   // ── message_history ────────────────────────────────────────────────────────
