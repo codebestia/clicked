@@ -57,6 +57,21 @@ export const conversationMembers = pgTable('conversation_members', {
   joinedAt: timestamp('joined_at').notNull().defaultNow(),
 });
 
+export const fileStatusEnum = pgEnum('file_status', ['pending', 'ready']);
+
+export const files = pgTable('files', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  uploaderId: uuid('uploader_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  objectKey: text('object_key').notNull(),
+  status: fileStatusEnum('status').notNull().default('pending'),
+  size: integer('size').notNull(),
+  sha256: text('sha256'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
 export const messages = pgTable(
   'messages',
   {
@@ -68,6 +83,7 @@ export const messages = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     content: text('content').notNull(),
+    fileId: uuid('file_id').references(() => files.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     deletedAt: timestamp('deleted_at'),
   },
@@ -236,6 +252,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   wallets: many(wallets),
   memberships: many(conversationMembers),
   messages: many(messages),
+  files: many(files),
   transfers: many(tokenTransfers),
   devices: many(devices),
 }));
@@ -265,6 +282,12 @@ export const messagesRelations = relations(messages, ({ one }) => ({
     references: [conversations.id],
   }),
   sender: one(users, { fields: [messages.senderId], references: [users.id] }),
+  file: one(files, { fields: [messages.fileId], references: [files.id] }),
+}));
+
+export const filesRelations = relations(files, ({ one, many }) => ({
+  uploader: one(users, { fields: [files.uploaderId], references: [users.id] }),
+  messages: many(messages),
 }));
 
 export const tokenTransfersRelations = relations(tokenTransfers, ({ one }) => ({
@@ -311,3 +334,5 @@ export type SignedPreKey = typeof signedPreKeys.$inferSelect;
 export type NewSignedPreKey = typeof signedPreKeys.$inferInsert;
 export type OneTimePreKey = typeof oneTimePreKeys.$inferSelect;
 export type NewOneTimePreKey = typeof oneTimePreKeys.$inferInsert;
+export type File = typeof files.$inferSelect;
+export type NewFile = typeof files.$inferInsert;

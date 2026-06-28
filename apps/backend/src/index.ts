@@ -18,6 +18,7 @@ import {
   runForever as runStellarListener,
 } from './services/stellarListener.js';
 import { loadEnv } from './config.js';
+import { startGarbageCollectionCron } from './cron/garbageCollection.js';
 
 dotenv.config();
 
@@ -122,6 +123,8 @@ httpServer.listen(PORT, () => {
 // Attach the Redis adapter after listen() so the API is reachable even if
 // Redis is unreachable; on failure we fall back to the in-process adapter.
 void attachRedisAdapter();
+
+startGarbageCollectionCron();
 
 // #46 — Stellar transfer event listener. Only spin up when the contract
 // id is configured so local-dev and unit-test runs don't try to talk to

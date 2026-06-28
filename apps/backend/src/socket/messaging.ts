@@ -1,7 +1,7 @@
 import type { Server } from 'socket.io';
 import { and, eq, lt, desc, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { conversations, conversationMembers, messages } from '../db/schema.js';
+import { conversations, conversationMembers, messages, files } from '../db/schema.js';
 import type { AuthSocket } from '../middleware/socketAuth.js';
 import { invalidateConversationCaches } from '../lib/conversationCache.js';
 import { serializeMessage } from '../lib/messages.js';
@@ -37,11 +37,11 @@ export function registerMessagingHandlers(io: Server, socket: AuthSocket): void 
   // ── send_message ───────────────────────────────────────────────────────────
   // Payload: { conversationId: string; content: string }
   // Persists the message and broadcasts it to all room members.
-  socket.on('send_message', async (payload: { conversationId: string; content: string }) => {
-    const { conversationId, content } = payload;
+  socket.on('send_message', async (payload: { conversationId: string; content: string; fileId?: string }) => {
+    const { conversationId, content, fileId } = payload;
 
-    if (!content?.trim()) {
-      socket.emit('error', { event: 'send_message', message: 'Content must not be empty' });
+    if (!content?.trim() && !fileId) {
+      socket.emit('error', { event: 'send_message', message: 'Content or file must be provided' });
       return;
     }
 
@@ -57,9 +57,23 @@ export function registerMessagingHandlers(io: Server, socket: AuthSocket): void 
       return;
     }
 
+    if (fileId) {
+      const file = await db.query.files.findFirst({
+        where: eq(files.id, fileId),
+      });
+      if (!file) {
+        socket.emit('error', { event: 'send_message', message: 'File not found' });
+        return;
+      }
+      if (file.status !== 'ready') {
+        socket.emit('error', { event: 'send_message', message: 'File is not ready' });
+        return;
+      }
+    }
+
     const [message] = await db
       .insert(messages)
-      .values({ conversationId, senderId: userId, content: content.trim() })
+      .values({ conversationId, senderId: userId, content: content?.trim() ?? '', fileId })
       .returning();
 
     io.to(conversationId).emit('new_message', message);
