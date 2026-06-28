@@ -90,7 +90,6 @@ impl ProposalsContract {
             amount,
         };
 
-
         env.storage()
             .instance()
             .set(&DataKey::Proposal(id), &proposal);
@@ -110,7 +109,6 @@ impl ProposalsContract {
                 amount,
             },
         );
-
 
         id
     }
@@ -234,12 +232,9 @@ impl ProposalsContract {
             panic!("proposal not approved");
         }
 
-
         // Verify caller is a treasury member.
-        let treasury_client = crate::treasury_interface::TreasuryClient::new(
-            &env,
-            &proposal.treasury,
-        );
+        let treasury_client =
+            crate::treasury_interface::TreasuryClient::new(&env, &proposal.treasury);
 
         if !treasury_client.is_member(&caller.clone()) {
             panic!("caller is not a treasury member");
@@ -258,7 +253,6 @@ impl ProposalsContract {
             &proposal.amount,
         );
 
-
         // Update proposal status.
         proposal.status = ProposalStatus::Executed;
         env.storage()
@@ -273,10 +267,7 @@ impl ProposalsContract {
                 executor: caller,
             },
         );
-
     }
-
-
 
     pub fn get_proposal(env: Env, proposal_id: u64) -> Proposal {
         Self::load_proposal(&env, proposal_id)

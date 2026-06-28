@@ -21,6 +21,26 @@ on:
     - cron: '0 8 * * 1'  # Every Monday at 08:00 UTC
 
 jobs:
+  fmt:
+    name: cargo fmt --check
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: cargo fmt --all --check
+        run: cargo fmt --all -- --check
+
   test-and-build:
     name: cargo test + build (wasm32)
     runs-on: ubuntu-latest
