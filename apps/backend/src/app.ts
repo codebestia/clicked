@@ -12,6 +12,7 @@ import { messagesRouter } from './routes/messages.js';
 import { usersRouter } from './routes/users.js';
 import { treasuryRouter } from './routes/treasury.js';
 import { filesRouter } from './routes/files.js';
+import { uploadsRouter } from './routes/uploads.js';
 import { pushRouter } from './routes/push.js';
 import { requireAuth, type AuthRequest } from './middleware/auth.js';
 
@@ -54,6 +55,7 @@ app.use('/messages', messagesRouter);
 app.use('/users', usersRouter);
 app.use('/treasury', treasuryRouter);
 app.use('/files', filesRouter);
+app.use('/uploads', uploadsRouter);
 app.use('/push', pushRouter);
 
 app.get('/me', requireAuth, (req, res) => {

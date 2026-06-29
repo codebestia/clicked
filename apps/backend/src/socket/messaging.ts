@@ -7,6 +7,7 @@ import {
   messages,
   messageEnvelopes,
   userDevices,
+  uploads,
 } from '../db/schema.js';
 import type { AuthSocket } from '../middleware/socketAuth.js';
 import { invalidateConversationCaches } from '../lib/conversationCache.js';
@@ -79,6 +80,21 @@ export function registerMessagingHandlers(io: Server, socket: AuthSocket): void 
           message: 'Not a member of this conversation',
         });
         return;
+      }
+
+      // If the message is a file type, verify the file upload is complete and ready
+      if (contentType && contentType !== 'text/plain' && contentType !== 'system') {
+        const upload = await db.query.uploads.findFirst({
+          where: eq(uploads.id, messageId),
+        });
+
+        if (!upload || upload.status !== 'ready') {
+          socket.emit('error', {
+            event: 'send_message',
+            message: 'File upload is pending or not found',
+          });
+          return;
+        }
       }
 
       // Idempotency check

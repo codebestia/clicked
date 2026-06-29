@@ -69,6 +69,17 @@ export const conversationMembers = pgTable('conversation_members', {
   joinedAt: timestamp('joined_at').notNull().defaultNow(),
 });
 
+export const uploads = pgTable('uploads', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  uploaderId: uuid('uploader_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  size: integer('size').notNull(),
+  sha256: text('sha256'),
+  status: text('status').notNull().default('pending'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
 export const messages = pgTable('messages', {
   id: uuid('id').primaryKey().defaultRandom(),
   conversationId: uuid('conversation_id')
@@ -293,6 +304,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   messages: many(messages),
   transfers: many(tokenTransfers),
   devices: many(devices),
+  uploads: many(uploads),
 }));
 
 export const walletsRelations = relations(wallets, ({ one }) => ({
@@ -312,6 +324,10 @@ export const conversationMembersRelations = relations(conversationMembers, ({ on
     references: [conversations.id],
   }),
   user: one(users, { fields: [conversationMembers.userId], references: [users.id] }),
+}));
+
+export const uploadsRelations = relations(uploads, ({ one }) => ({
+  uploader: one(users, { fields: [uploads.uploaderId], references: [users.id] }),
 }));
 
 export const messagesRelations = relations(messages, ({ one, many }) => ({
@@ -400,6 +416,8 @@ export type NewWallet = typeof wallets.$inferInsert;
 export type Conversation = typeof conversations.$inferSelect;
 export type NewConversation = typeof conversations.$inferInsert;
 export type ConversationMember = typeof conversationMembers.$inferSelect;
+export type Upload = typeof uploads.$inferSelect;
+export type NewUpload = typeof uploads.$inferInsert;
 export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 export type MessageEnvelope = typeof messageEnvelopes.$inferSelect;
