@@ -63,7 +63,7 @@ export async function startDeviceRevocationListener(
           const socket = io.sockets.sockets.get(socketId) as AuthSocket | undefined;
           if (socket) {
             if (appRedis && socket.auth) {
-              await setOffline(appRedis, socket.auth.userId, socketId);
+              await setOffline(appRedis, socket.auth.userId, deviceId);
             }
             socket.emit('device_revoked', { message: 'This device has been revoked' });
             socket.disconnect(true);

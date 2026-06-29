@@ -1,13 +1,14 @@
 /**
  * Online presence tracking (#13).
  *
- * Stores userId → socketId mapping in Redis with a 60-second TTL that is
- * refreshed on every heartbeat. Uses a Redis set per userId to support
- * multiple tabs/connections but counting as a single presence entry.
+ * Stores presence:user:{userId} -> { deviceId -> lastSeen } in Redis as a hash.
+ * Every device connection updates its own field and the key expires after the
+ * configured TTL unless refreshed by heartbeats. A user is considered online
+ * when at least one device entry remains.
  *
- * - On connect:   add socketId to `presence:{userId}` set, set TTL 60s
- * - On heartbeat: refresh TTL to 60s
- * - On disconnect: remove socketId from set, if set empty → user_offline
+ * - On connect:   set the device field to now, set TTL 90s
+ * - On heartbeat: refresh the device field and TTL
+ * - On disconnect/timeout: remove the device field; if empty, remove the key
  * - GET /users/:id/presence → { online: boolean }
  */
 import type { Redis } from 'ioredis';
@@ -15,39 +16,41 @@ import type { Redis } from 'ioredis';
 const PRESENCE_TTL = 90; // seconds
 
 function presenceKey(userId: string): string {
-  return `presence:${userId}`;
+  return `presence:user:${userId}`;
+}
+
+function lastSeenValue(): string {
+  return String(Date.now());
 }
 
 /**
- * Register a socket connection for a user. Adds the socketId to the
- * user's presence set and sets/refreshes the TTL.
+ * Register a device connection for a user. Stores the device as a hash field
+ * and refreshes the presence TTL.
  */
-export async function setOnline(redis: Redis, userId: string, socketId: string): Promise<void> {
+export async function setOnline(redis: Redis, userId: string, deviceId: string): Promise<void> {
   const key = presenceKey(userId);
-  await redis.sadd(key, socketId);
+  await redis.hset(key, deviceId, lastSeenValue());
   await redis.expire(key, PRESENCE_TTL);
 }
 
 /**
- * Refresh the presence TTL (called on heartbeat).
+ * Refresh the presence entry for a specific device (called on heartbeat).
  */
-export async function refreshPresence(redis: Redis, userId: string): Promise<void> {
+export async function refreshPresence(redis: Redis, userId: string, deviceId: string): Promise<void> {
   const key = presenceKey(userId);
-  const exists = await redis.exists(key);
-  if (exists) {
-    await redis.expire(key, PRESENCE_TTL);
-  }
+  await redis.hset(key, deviceId, lastSeenValue());
+  await redis.expire(key, PRESENCE_TTL);
 }
 
 /**
- * Remove a socket connection from the user's presence set.
- * Returns true if the user has gone fully offline (no remaining sockets).
+ * Remove a device connection from the user's presence hash.
+ * Returns true if the user has gone fully offline (no remaining devices).
  */
-export async function setOffline(redis: Redis, userId: string, socketId: string): Promise<boolean> {
+export async function setOffline(redis: Redis, userId: string, deviceId: string): Promise<boolean> {
   const key = presenceKey(userId);
-  await redis.srem(key, socketId);
-  const remaining = await redis.scard(key);
-  if (remaining === 0) {
+  await redis.hdel(key, deviceId);
+  const remaining = await redis.hgetall(key);
+  if (!remaining || Object.keys(remaining).length === 0) {
     await redis.del(key);
     return true;
   }
@@ -55,12 +58,16 @@ export async function setOffline(redis: Redis, userId: string, socketId: string)
 }
 
 /**
- * Forcefully mark a user offline by deleting their presence key.
+ * Forcefully mark a device offline by deleting its hash field.
  * Used when a heartbeat timeout or device revocation occurs.
  */
-export async function markDeviceOffline(redis: Redis, userId: string): Promise<void> {
+export async function markDeviceOffline(redis: Redis, userId: string, deviceId: string): Promise<void> {
   const key = presenceKey(userId);
-  await redis.del(key);
+  await redis.hdel(key, deviceId);
+  const remaining = await redis.hgetall(key);
+  if (!remaining || Object.keys(remaining).length === 0) {
+    await redis.del(key);
+  }
 }
 
 /**
@@ -68,6 +75,6 @@ export async function markDeviceOffline(redis: Redis, userId: string): Promise<v
  */
 export async function isOnline(redis: Redis, userId: string): Promise<boolean> {
   const key = presenceKey(userId);
-  const count = await redis.scard(key);
-  return count > 0;
+  const entries = await redis.hgetall(key);
+  return Object.keys(entries ?? {}).length > 0;
 }
