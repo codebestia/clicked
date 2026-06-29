@@ -8,6 +8,7 @@ import {
   messages,
   messageEnvelopes,
   userDevices,
+  files,
 } from '../db/schema.js';
 import type { AuthSocket } from '../middleware/socketAuth.js';
 import { invalidateConversationCaches } from '../lib/conversationCache.js';
@@ -133,6 +134,18 @@ export function registerMessagingHandlers(io: Server, socket: AuthSocket): void 
         return;
       }
 
+      const isFile = contentType && contentType !== 'text/plain';
+      if (isFile) {
+        const file = await db.query.files.findFirst({
+          where: eq(files.id, messageId),
+        });
+
+        if (!file || file.status !== 'ready') {
+          socket.emit('error', { event: 'send_message', message: 'Referenced file is not ready or not found' });
+          return;
+        }
+      }
+
       const [message] = await db
         .insert(messages)
         .values({
@@ -174,9 +187,8 @@ export function registerMessagingHandlers(io: Server, socket: AuthSocket): void 
           messageId,
           sequenceNumber: message.sequenceNumber,
         });
+        await deliverMessage(io, message, conversationId);
       }
-
-      await deliverMessage(io, message, conversationId);
 
       const members = await db.query.conversationMembers.findMany({
         where: eq(conversationMembers.conversationId, conversationId),
@@ -241,6 +253,20 @@ export function registerMessagingHandlers(io: Server, socket: AuthSocket): void 
       if (existing) {
         socket.emit('message_ack', { messageId, sequenceNumber: existing.sequenceNumber });
         return;
+      }
+
+      const effectiveContentType = contentType || original.contentType;
+      const isFile = effectiveContentType && effectiveContentType !== 'text/plain';
+      
+      if (isFile) {
+        const file = await db.query.files.findFirst({
+          where: eq(files.id, messageId),
+        });
+
+        if (!file || file.status !== 'ready') {
+          socket.emit('error', { event: 'edit_message', message: 'Referenced file is not ready or not found' });
+          return;
+        }
       }
 
       const [message] = await db

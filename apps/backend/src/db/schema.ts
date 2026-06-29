@@ -53,6 +53,22 @@ export const contentTypeEnum = pgEnum('content_type', [
   'system',
 ]);
 
+export const fileStatusEnum = pgEnum('file_status', ['pending', 'ready']);
+
+export const files = pgTable('files', {
+  id: uuid('id').primaryKey(),
+  conversationId: uuid('conversation_id')
+    .notNull()
+    .references(() => conversations.id, { onDelete: 'cascade' }),
+  uploaderId: uuid('uploader_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  size: integer('size').notNull(),
+  sha256: text('sha256'),
+  status: fileStatusEnum('status').notNull().default('pending'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
 export const conversationMembers = pgTable('conversation_members', {
   id: uuid('id').primaryKey().defaultRandom(),
   conversationId: uuid('conversation_id')
@@ -293,6 +309,15 @@ export const usersRelations = relations(users, ({ many }) => ({
   messages: many(messages),
   transfers: many(tokenTransfers),
   devices: many(devices),
+  files: many(files),
+}));
+
+export const filesRelations = relations(files, ({ one }) => ({
+  conversation: one(conversations, {
+    fields: [files.conversationId],
+    references: [conversations.id],
+  }),
+  uploader: one(users, { fields: [files.uploaderId], references: [users.id] }),
 }));
 
 export const walletsRelations = relations(wallets, ({ one }) => ({
@@ -304,6 +329,7 @@ export const conversationsRelations = relations(conversations, ({ many }) => ({
   messages: many(messages),
   transfers: many(tokenTransfers),
   treasuryProposals: many(treasuryProposals),
+  files: many(files),
 }));
 
 export const conversationMembersRelations = relations(conversationMembers, ({ one }) => ({
@@ -414,3 +440,5 @@ export type OneTimePreKey = typeof oneTimePreKeys.$inferSelect;
 export type NewOneTimePreKey = typeof oneTimePreKeys.$inferInsert;
 export type UserDevice = typeof userDevices.$inferSelect;
 export type NewUserDevice = typeof userDevices.$inferInsert;
+export type FileRecord = typeof files.$inferSelect;
+export type NewFileRecord = typeof files.$inferInsert;

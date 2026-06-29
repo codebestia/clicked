@@ -33,6 +33,7 @@ import {
   runForever as runStellarListener,
 } from './services/stellarListener.js';
 import { loadEnv } from './config.js';
+import { startGarbageCollection } from './services/garbageCollection.js';
 
 dotenv.config();
 
@@ -236,6 +237,7 @@ async function attachRedisAdapter(): Promise<void> {
 const PORT = process.env['PORT'] ?? 3001;
 httpServer.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);
+  startGarbageCollection();
 });
 
 // Attach the Redis adapter after listen() so the API is reachable even if
