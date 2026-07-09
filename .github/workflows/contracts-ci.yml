@@ -2,9 +2,10 @@
 #
 # Triggers on push or PR that touches `contracts/**` (or this workflow file).
 # Installs the pinned Rust toolchain and the `wasm32-unknown-unknown` target,
-# runs `cargo test -p token_transfer`, then builds the release WASM. Cargo's
-# registry and `target/` directory are cached on the workflow key so
-# subsequent runs skip the dependency rebuild.
+# runs `cargo test -p token_transfer`, `cargo test -p group_treasury`, and
+# `cargo test -p proposals`, then builds the release WASM for all three
+# contracts. Cargo's registry and `target/` directory are cached on the
+# workflow key so subsequent runs skip the dependency rebuild.
 
 name: Contracts CI
 
@@ -116,6 +117,15 @@ jobs:
       - name: cargo build (release wasm32) - proposals
         run: cargo build -p proposals --target wasm32-unknown-unknown --release
 
+      - name: Upload release wasm artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-wasm-contracts
+          path: |
+            contracts/target/wasm32-unknown-unknown/release/token_transfer.wasm
+            contracts/target/wasm32-unknown-unknown/release/group_treasury.wasm
+            contracts/target/wasm32-unknown-unknown/release/proposals.wasm
+          if-no-files-found: error
 
   clippy:
     name: cargo clippy (wasm32)
