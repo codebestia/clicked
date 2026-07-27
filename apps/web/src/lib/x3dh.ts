@@ -17,7 +17,6 @@
 import { ed25519, x25519 } from '@noble/curves/ed25519';
 import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha2';
-import { randomBytes } from '@noble/hashes/utils';
 
 // ─── Wire format helpers ────────────────────────────────────────────────────
 
@@ -27,11 +26,20 @@ const ED25519_SPKI_HEADER = new Uint8Array([
 ]);
 
 export function toBase64(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString('base64');
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 }
 
 export function fromBase64(b64: string): Uint8Array {
-  return new Uint8Array(Buffer.from(b64, 'base64'));
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
 
 export function rawEd25519PublicKeyToSpki(rawPublicKey: Uint8Array): Uint8Array {
@@ -84,6 +92,12 @@ export function generateOneTimePreKeys(startKeyId: number, count: number): PreKe
     const publicKey = x25519.getPublicKey(privateKey);
     return { keyId: startKeyId + i, privateKey, publicKey };
   });
+}
+
+export function randomBytes(length: number): Uint8Array {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return bytes;
 }
 
 // ─── X3DH ───────────────────────────────────────────────────────────────────
@@ -213,5 +227,3 @@ export function completeSession(
     usedOneTimePreKeyId: header.usedOneTimePreKeyId,
   };
 }
-
-export { randomBytes };
