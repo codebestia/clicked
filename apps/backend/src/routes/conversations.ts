@@ -487,6 +487,17 @@ conversationsRouter.get('/:id/messages', async (req: AuthRequest, res) => {
     cursor = ref;
   }
 
+  // Exclude superseded versions of edited messages. A row is the latest in its
+  // edit chain when no other row exists with edits_message_id equal to this
+  // row's chain root (COALESCE(editsMessageId, id)) and a later createdAt.
+  // All edits of the same chain share the same root id, so the newest row per
+  // root is the only one that passes this filter.
+  const notSuperseded = sql`NOT EXISTS (
+    SELECT 1 FROM messages m2
+    WHERE m2.edits_message_id = COALESCE(${messages.editsMessageId}, ${messages.id})
+      AND m2.created_at > ${messages.createdAt}
+  )`;
+
   // Fetch one extra to determine whether there is a next page
   const rows = await db.query.messages.findMany({
     where: cursor
@@ -496,8 +507,9 @@ conversationsRouter.get('/:id/messages', async (req: AuthRequest, res) => {
             lt(messages.createdAt, cursor.createdAt),
             and(eq(messages.createdAt, cursor.createdAt), lt(messages.id, cursor.id)),
           ),
+          notSuperseded,
         )
-      : eq(messages.conversationId, conversationId),
+      : and(eq(messages.conversationId, conversationId), notSuperseded),
     orderBy: [desc(messages.createdAt), desc(messages.id)],
     limit: limit + 1,
     with: {
