@@ -16,6 +16,18 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: clicked_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
       redis:
         image: redis:7-alpine
         ports:
@@ -24,6 +36,19 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 5s
           --health-timeout 3s
+          --health-retries 5
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports:
+          - 9000:9000
+        options: >-
+          server /data
+          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
           --health-retries 5
 
     defaults:
@@ -52,8 +77,32 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Run migrations
+        run: pnpm db:migrate
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/clicked_test
+          NODE_ENV: test
+
       - name: Tests
         run: pnpm test
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci-test-secret' }}
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/clicked_test
           REDIS_URL: redis://localhost:6379
+          MINIO_ENDPOINT: localhost:9000
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          MINIO_BUCKET: test-bucket
+          NODE_ENV: test
+
+      - name: E2EE Test Suite
+        run: pnpm test:e2ee
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci-test-secret' }}
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/clicked_test
+          REDIS_URL: redis://localhost:6379
+          MINIO_ENDPOINT: localhost:9000
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          MINIO_BUCKET: test-bucket
+          NODE_ENV: test

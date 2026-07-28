@@ -12,7 +12,7 @@ on:
 
 jobs:
   check:
-    name: Lint · Build
+    name: Lint · Test · Build · Bundle Size
     runs-on: ubuntu-latest
 
     steps:
@@ -36,5 +36,16 @@ jobs:
       - name: Test
         run: pnpm --filter web test
 
+      - name: Web Crypto Tests
+        run: pnpm --filter web test:crypto
+        env:
+          NODE_ENV: test
+
       - name: Build
         run: pnpm --filter web build
+
+      - name: Check Bundle Size
+        run: pnpm --filter web build:analyze
+        env:
+          NODE_ENV: production
+          BUNDLE_SIZE_BUDGET: 512kb
