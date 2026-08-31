@@ -18,7 +18,7 @@ Built on blockchain infrastructure and modern messaging protocols, the platform 
 - 🤖 AI-powered insights (fraud detection, proposal analysis, smart assistants)
 
 ---
-
+//temporary
 ## 🎯 Vision
 
 To create a **financial coordination layer for communities**, where communication, value exchange, and decision-making happen in one place—securely, transparently, and intelligently.
