@@ -1,20 +1,4 @@
-/**
- * Stellar event listener for `token_transfer` (#46) and `group_treasury` multisig (#130).
- *
- * Subscribes to contract events emitted by the `token_transfer` and
- * `group_treasury` Soroban contracts. The listener:
- *
- *   - Polls Soroban RPC `getEvents` on a short interval (cursor-based).
- *   - Reconnects automatically after a transient failure with exponential
- *     backoff capped at 30 seconds.
- *   - Upserts on the unique `tx_hash` / `(contractId, proposalId)` so
- *     reconnects that re-read a page produce no duplicates.
- *   - After each treasury proposal DB update, emits a
- *     `treasury_proposal_updated` Socket.IO event to the relevant room.
- *   - Logs errors via the standard backend logger but never rethrows out
- *     of `runForever`, so the API server stays up even if the chain is
- *     unreachable.
- */
+
 import { rpc } from '@stellar/stellar-sdk';
 import { db } from '../db/index.js';
 import { tokenTransfers, messages, conversations, users, treasuryProposals } from '../db/schema.js';
