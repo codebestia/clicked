@@ -150,6 +150,16 @@ Match the workflow's own commands where practical: `pnpm lint` / `pnpm format:ch
 commands the workflow runs, in the affected app's directory, is the most reliable way to know
 CI will pass before you push.
 
+## Known limitations
+
+Before "fixing" something that looks wrong — a hardcoded value, a stub with no caller,
+an inconsistency between two defaults — check
+[`docs/known-limitations.md`](docs/known-limitations.md) first. It's a maintained
+register of exactly these cases: code that exists but isn't live, and deliberate
+incomplete behavior awaiting a tracked follow-up. If what you're looking at isn't
+listed there, it's either not a known issue yet (open one) or it's intentional and
+undocumented (ask before changing it).
+
 ---
 
 See also the top-level [documentation index](docs/README.md) for architecture and per-app

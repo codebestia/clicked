@@ -63,6 +63,9 @@ listener.
 | [Replay protection and event idempotency](../apps/backend/docs/concepts-replay-protection.md)            | The device-scoped `eventId` dedup, the message-level `messageId` idempotency, the TTL, and the `dispatch_ack` duplicate flag.              |
 | [Backend caching reference](../apps/backend/docs/concepts-caching.md)                                    | The conversation-list cache: key, TTL, payload, every invalidation site, and the behaviour when Redis is down.                             |
 | [Presence, heartbeat & connection liveness](../apps/backend/docs/concepts-presence-heartbeat.md)         | The Redis presence key structure, the 30s/90s heartbeat timing contract, multi-device aggregation, and the debounced offline-broadcast behaviour. |
+| [Message edit and delete semantics](../apps/backend/docs/concepts-message-edit-delete.md)                | Authorization, how an edit is a new linked message rather than a mutation, what a deleted message's envelope does on `/sync`, and the honest limit of delete under E2EE. |
+| [AI assistant bridge](../apps/backend/docs/concepts-ai-assistant-bridge.md)                              | The full `ask_assistant` request path, the hardcoded agent URL, and exactly what plaintext leaves the client and reaches the backend and the AI agent. |
+| [Push notification decision matrix](../apps/backend/docs/concepts-push-decision-matrix.md)               | The full filter chain deciding whether a device gets a push, why one online device suppresses push to a user's other devices, and the coalescing/rate-limit layer on top. |
 | [Testing strategy and conventions](testing.md)                                                           | The Drizzle mocking pattern, driving socket handlers through the `dispatch` envelope, and the in-process counters that leak between tests. |
 | [Backend testing guide](../apps/backend/docs/testing.md)                                                 | The standard route-test mock set with a copyable skeleton, the Drizzle chain traps, and the state a suite has to reset between tests.      |
 
@@ -97,6 +100,7 @@ listener.
 | [Database migration workflow](../apps/backend/docs/migrations.md)                    | The drizzle-kit loop from `schema.ts` to applied SQL, the `drizzle/` layout, and how to resolve the colliding-migration merge conflict that has already broken this history once. |
 | [E2EE onboarding](../apps/backend/docs/e2ee-onboarding.md)                           | Device registration and prekey upload flow for first-contact DM setup.                                                                                                            |
 | [E2EE key management concepts](../apps/backend/docs/concepts-e2ee-key-management.md) | The full backend-side key lifecycle — registration, prekey upload/consumption, revocation — and an explicit statement of what the server can and cannot see.                       |
+| [Flow: linking a new device](../docs/flows/device-linking.md)                        | The challenge/verify handshake end to end, what history a new device can and cannot read, the key-change notice peers see, revocation as the reverse flow, and a real gap: no client UI for this flow yet. |
 | [MLS key packages](../apps/backend/docs/mls-key-packages.md)                         | Key package publication, consumption, and replenishment.                                                                                                                          |
 | [MLS group membership](../apps/backend/docs/mls-group-membership.md)                 | Adding and removing members from an MLS group and the resulting epoch changes.                                                                                                    |
 | [MLS group files](../apps/backend/docs/mls-group-files.md)                           | How file keys are distributed to an MLS group.                                                                                                                                    |
@@ -118,6 +122,7 @@ is about encryption and local state.
 | [Identity trust, TOFU, and safety numbers](../apps/web/docs/concepts-identity-trust.md) | The client trust pin, when `IdentityKeyChangedError` is thrown, and how the safety-number panel is computed and shown.                          |
 | [MLS client integration](../apps/web/docs/concepts-mls-client.md)                   | How `lib/mls.ts` and `lib/crypto/mls.ts` split group creation, Welcome join, and browser group state.                                                |
 | [Landing page components](../apps/web/docs/components-landing.md)                   | Where landing copy and links live, which public claims overstate what is shipped, and the breakpoints that folder uses.                              |
+| [X3DH and Double Ratchet implementation notes](../apps/web/docs/concepts-x3dh-double-ratchet.md) | `lib/x3dh.ts` and `lib/crypto/doubleRatchet.ts` checked against the Signal specs: the Ed25519/X25519 identity-key conversion, the KDF construction, skipped-key limits, and every deviation found. |
 | [Message pipeline](../apps/web/docs/concepts-message-pipeline.md)                   | The client-side path from typed text to an encrypted envelope on the wire, and back.                                                                  |
 | [Auth and device lifecycle](../apps/web/docs/concepts-auth-device-lifecycle.md)     | Wallet connection, device registration, session persistence, and revocation handling.                                                                 |
 | [File encryption](../apps/web/docs/concepts-file-encryption.md)                     | How attachments are encrypted client-side before upload.                                                                                              |
@@ -160,6 +165,7 @@ The Soroban workspace in `contracts/`: `token_transfer`, `group_treasury`, and `
 | [Token transfer flow](../contracts/docs/concepts-token-transfer-flow.md)        | The end-to-end flow of an in-chat payment through the contract.                                                                                                            |
 | [Token transfer storage](../contracts/docs/contracts-token-transfer-storage.md) | Storage keys and value types used by `token_transfer`.                                                                                                                     |
 | [WASM size and resource budget](../contracts/docs/concepts-resource-budget.md)  | The 100 KB per-contract CI gate, current sizes and headroom, and the levers available when a contract approaches the limit.                                                |
+| [How-to: add a contract function](../contracts/docs/howto-add-contract-function.md) | The full path from a new `#[contractimpl]` function to a working UI action: implementation, tests, snapshot regeneration, upgrade/redeploy, listener changes, and the frontend call. |
 
 ### Operator
 
@@ -217,6 +223,8 @@ Documents about the repository itself rather than about the product.
 | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
 | [Security policy](../SECURITY.md)                            | How and where to report a vulnerability privately, and why never in a public issue or pull request. |
 | [Documentation style guide](documentation-style-guide.md)    | Where docs live, the file-name prefixes, and the checklist for reviewing a docs PR.                  |
+| [Known limitations and unwired code register](known-limitations.md) | Code that exists but isn't live, hardcoded values awaiting configuration, and the inconsistencies and gaps found while writing this documentation batch. |
+| [Scripts and Makefile reference](scripts-reference.md) | Every runnable script and Makefile target: purpose, required env vars, side effects, and whether CI actually invokes it. |
 | [Testing strategy and conventions](testing.md)               | Cross-app testing philosophy, runners, and the conventions a contributor must follow.               |
 | [Pull request template](../.github/pull_request_template.md) | The checklist every pull request is opened against.                                                 |
 | [PR notes](../pr.md)                                         | Scratch notes for an in-flight pull request; not a reference document.                              |
