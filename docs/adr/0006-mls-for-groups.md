@@ -11,7 +11,7 @@ members can open, without giving the server the key. The chosen protocol
 is MLS (RFC 9420) via `@openmls/wasm` on the client; the backend stores
 public group state only
 ([mls-group-membership.md](../../apps/backend/docs/mls-group-membership.md),
-[mls-integration.md](../../apps/web/src/lib/mls-integration.md)).
+[concepts-mls-client.md](../../apps/web/docs/concepts-mls-client.md)).
 
 ## Decision
 

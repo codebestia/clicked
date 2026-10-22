@@ -119,6 +119,9 @@ is about encryption and local state.
 | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [Web app README](../apps/web/README.md)                                             | Running the Next.js client on its own, its scripts, and its environment variables.                                                                    |
 | [E2EE architecture](../apps/web/docs/concepts-e2ee-architecture.md)                 | Where keys live in the browser, how sessions are established, and what never leaves the device.                                                       |
+| [Identity trust, TOFU, and safety numbers](../apps/web/docs/concepts-identity-trust.md) | The client trust pin, when `IdentityKeyChangedError` is thrown, and how the safety-number panel is computed and shown.                          |
+| [MLS client integration](../apps/web/docs/concepts-mls-client.md)                   | How `lib/mls.ts` and `lib/crypto/mls.ts` split group creation, Welcome join, and browser group state.                                                |
+| [Landing page components](../apps/web/docs/components-landing.md)                   | Where landing copy and links live, which public claims overstate what is shipped, and the breakpoints that folder uses.                              |
 | [X3DH and Double Ratchet implementation notes](../apps/web/docs/concepts-x3dh-double-ratchet.md) | `lib/x3dh.ts` and `lib/crypto/doubleRatchet.ts` checked against the Signal specs: the Ed25519/X25519 identity-key conversion, the KDF construction, skipped-key limits, and every deviation found. |
 | [Message pipeline](../apps/web/docs/concepts-message-pipeline.md)                   | The client-side path from typed text to an encrypted envelope on the wire, and back.                                                                  |
 | [Auth and device lifecycle](../apps/web/docs/concepts-auth-device-lifecycle.md)     | Wallet connection, device registration, session persistence, and revocation handling.                                                                 |
@@ -142,7 +145,7 @@ is about encryption and local state.
 | [Auth session contract](../apps/web/docs/contracts-auth-session.md)      | The shape of the persisted session and what invalidates it.                                              |
 | [IndexedDB schemas](../apps/web/docs/contracts-indexeddb-schemas.md)     | Every IndexedDB object store, its keys, and its migration history.                                       |
 | [Response types](../apps/web/docs/contracts-response-types.md)           | Shared TypeScript response types used across the client.                                                 |
-| [MLS integration notes](../apps/web/src/lib/mls-integration.md)          | Implementation notes co-located with the MLS integration code.                                           |
+| [MLS client integration](../apps/web/docs/concepts-mls-client.md)        | Client-side MLS group creation, Welcome join, and where browser group state lives.                       |
 | [Search module README](../apps/web/src/lib/search/README.md)             | Implementation notes for the local search module.                                                        |
 
 ### Contract developer
@@ -191,6 +194,8 @@ Threat model, hardening, and the crypto protocol documents.
 | [Signal integration](signal-integration.md)                              | How the Signal protocol is integrated and which guarantees it provides.                                |
 | [Group epoch sync](group-epoch-sync.md)                                  | How MLS group epochs stay synchronised across devices and what happens when they diverge.              |
 | [E2EE architecture](../apps/web/docs/concepts-e2ee-architecture.md)      | The client-side key model — the basis for any claim that the server cannot read messages.              |
+| [Identity trust and safety numbers](../apps/web/docs/concepts-identity-trust.md) | The TOFU pin, `IdentityKeyChangedError`, and the limits of the safety-number panel.                 |
+| [MLS client integration](../apps/web/docs/concepts-mls-client.md)        | Browser MLS client boundary, Welcome transport, and what is lost if group state is cleared.         |
 
 ### AI / data developer
 
@@ -217,6 +222,7 @@ Documents about the repository itself rather than about the product.
 | Document                                                     | What it gives you                                                                                   |
 | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
 | [Security policy](../SECURITY.md)                            | How and where to report a vulnerability privately, and why never in a public issue or pull request. |
+| [Documentation style guide](documentation-style-guide.md)    | Where docs live, the file-name prefixes, and the checklist for reviewing a docs PR.                  |
 | [Known limitations and unwired code register](known-limitations.md) | Code that exists but isn't live, hardcoded values awaiting configuration, and the inconsistencies and gaps found while writing this documentation batch. |
 | [Scripts and Makefile reference](scripts-reference.md) | Every runnable script and Makefile target: purpose, required env vars, side effects, and whether CI actually invokes it. |
 | [Testing strategy and conventions](testing.md)               | Cross-app testing philosophy, runners, and the conventions a contributor must follow.               |
