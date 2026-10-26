@@ -45,6 +45,7 @@ const {
   actorFromRequest,
 } = await import('../services/auditLog.js');
 const { auditLogsRouter } = await import('../routes/auditLogs.js');
+const { app: fullApp } = await import('../app.js');
 
 function makeApp() {
   const app = express();
@@ -364,5 +365,15 @@ describe('AC3 — logs are queryable for an account', () => {
     await request(makeApp()).get('/audit-logs?limit=100000');
 
     expect(mockAuditFindMany).toHaveBeenCalledWith(expect.objectContaining({ limit: 201 }));
+  });
+
+  it('serves GET /audit-logs when mounted in app', async () => {
+    mockAuditFindMany.mockResolvedValue([]);
+
+    const res = await request(fullApp).get('/audit-logs');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('events');
+    expect(mockAuditFindMany).toHaveBeenCalled();
   });
 });
