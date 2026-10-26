@@ -7,7 +7,9 @@
  * first, cursor-paginated.
  */
 import { Router, type Router as RouterType } from 'express';
+import { z } from 'zod';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 import { auditActionEnum, type AuditAction } from '../db/schema.js';
 import {
   DEFAULT_AUDIT_PAGE_SIZE,
@@ -18,30 +20,39 @@ import {
 export const auditLogsRouter: RouterType = Router();
 
 auditLogsRouter.use(requireAuth);
+auditLogsRouter.use(rateLimit('audit_logs'));
 
-const VALID_ACTIONS = new Set<string>(auditActionEnum.enumValues);
+export const AuditLogsQuerySchema = z.object({
+  action: z.enum(auditActionEnum.enumValues).optional(),
+  limit: z.coerce.number().int().positive().optional().default(DEFAULT_AUDIT_PAGE_SIZE),
+  cursor: z.string().min(1).optional(),
+});
 
 auditLogsRouter.get('/', async (req: AuthRequest, res) => {
   const userId = req.auth!.userId;
 
-  const rawAction = typeof req.query['action'] === 'string' ? req.query['action'] : undefined;
-  if (rawAction && !VALID_ACTIONS.has(rawAction)) {
+  const parsed = AuditLogsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    if (req.query['action'] && !auditActionEnum.enumValues.includes(req.query['action'] as any)) {
+      res.status(400).json({
+        error: 'Unknown action filter',
+        allowed: auditActionEnum.enumValues,
+      });
+      return;
+    }
     res.status(400).json({
-      error: 'Unknown action filter',
-      allowed: auditActionEnum.enumValues,
+      error: 'Invalid query parameters',
+      details: parsed.error.issues,
     });
     return;
   }
 
-  const rawLimit = Number.parseInt(req.query['limit'] as string, 10);
-  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : DEFAULT_AUDIT_PAGE_SIZE;
-
-  const cursor = typeof req.query['cursor'] === 'string' ? req.query['cursor'] : undefined;
+  const { action, limit, cursor } = parsed.data;
 
   try {
     const { events, nextCursor, hasMore } = await queryAuditLog({
       userId,
-      ...(rawAction ? { action: rawAction as AuditAction } : {}),
+      ...(action ? { action: action as AuditAction } : {}),
       ...(cursor ? { cursor } : {}),
       limit: Math.min(limit, MAX_AUDIT_PAGE_SIZE),
     });

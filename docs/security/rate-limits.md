@@ -18,6 +18,7 @@ gateway node instead of being multiplied by the node count.
 | `upload_bytes_daily`   | 2 GiB / day | Quota on upload **volume**, charged in bytes              |
 | `file_download`        | 120 / min   | `GET /files/:fileId`                                      |
 | `push_subscribe`       | 10 / min    | `POST /push/subscriptions`                                |
+| `audit_logs`           | 30 / min    | `GET /audit-logs`                                         |
 | `socket_default`       | 10 / sec    | Any socket event without its own bucket                   |
 | `socket_send_message`  | 30 / 10 sec | `send_message`, `send_file_message`                       |
 | `socket_typing`        | 20 / 5 sec  | `typing_start`, `typing_stop`                             |

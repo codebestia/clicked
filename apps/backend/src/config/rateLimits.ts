@@ -92,6 +92,11 @@ export const RATE_LIMIT_DEFAULTS = {
     windowSeconds: MINUTE,
     description: 'Web-push subscription registration',
   },
+  audit_logs: {
+    limit: 30,
+    windowSeconds: MINUTE,
+    description: 'Security audit log queries',
+  },
 
   // ── Socket events ──────────────────────────────────────────────────────────
   socket_default: {
