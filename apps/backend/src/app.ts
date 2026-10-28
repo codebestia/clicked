@@ -19,6 +19,7 @@ import { userDevicesRouter } from './routes/userDevices.js';
 import { mlsRouter } from './routes/mls.js';
 import { localStorageRouter } from './routes/localStorage.js';
 import { securityRouter } from './routes/security.js';
+import { auditLogsRouter } from './routes/auditLogs.js';
 import { requireAuth, type AuthRequest } from './middleware/auth.js';
 import { registry } from './lib/metrics.js';
 import { trustProxyHops, isOriginAllowed, allowedOrigins } from './lib/transportSecurity.js';
@@ -91,6 +92,7 @@ app.use('/push', pushRouter);
 app.use('/sync', syncRouter);
 app.use('/user-devices', userDevicesRouter);
 app.use('/security', securityRouter);
+app.use('/audit-logs', auditLogsRouter);
 
 // #330 — dev/test only: serves the fs-backed object store so presigned URLs
 // issued locally are real, working URLs. Deliberately outside requireAuth
