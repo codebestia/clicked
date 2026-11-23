@@ -19,6 +19,7 @@ exact panic message catalog across all three contracts, see
 - [Shared vote-validation helper: `require_votable`](#shared-vote-validation-helper-require_votable)
 - [Setup & configuration](#setup--configuration)
   - [`initialize`](#initialize)
+  - [`admin`](#admin)
   - [`get_threshold`](#get_threshold)
 - [Membership](#membership)
   - [`add_member`](#add_member)
@@ -160,6 +161,34 @@ initialized with a threshold higher than it will ever have members (members don'
 at init time, since they're added afterward via `add_member`). See
 [`concepts-treasury-multisig-model.md`](concepts-treasury-multisig-model.md) for the
 consequences.
+
+---
+
+### `admin`
+
+Returns the configured administrator address (#719).
+
+**Full signature:**
+
+```rust
+pub fn admin(env: Env) -> Address
+```
+
+**Parameters:**
+
+- `env: Env` — the Soroban host environment context.
+
+**Return value:** `Address` — the administrator address stored under `DataKey::Admin`.
+
+**Authorization requirements:** **none.** Read-only query.
+
+**State mutations:** **none.**
+
+**Panics:**
+
+| Condition | Message |
+|---|---|
+| `DataKey::Admin` not present in instance storage | `"not initialized"` |
 
 ---
 

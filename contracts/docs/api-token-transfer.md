@@ -38,6 +38,32 @@ Panics / failure conditions:
 
 ---
 
+### admin
+
+Signature:
+
+```rust
+pub fn admin(env: Env) -> Address
+```
+
+What it does:
+
+- Reads and returns the configured administrator address from instance storage (#719).
+
+Authorization:
+
+- None. Read-only query.
+
+Panics / failure conditions:
+
+- Panics with `"not initialized"` if the contract has not yet been initialized.
+
+Return value:
+
+- `Address`: The configured admin address.
+
+---
+
 ### transfer
 
 Signature:
@@ -49,6 +75,7 @@ pub fn transfer(env: Env, from: Address, to: Address, amount: i128, memo: Bytes)
 What it does:
 
 - Validates the transfer amount.
+- Validates the memo length against `MAX_MEMO_LEN` (64 bytes).
 - Requires the sender address to authorize the call.
 - Resolves the configured token contract from instance storage.
 - Delegates the actual transfer to that token contract.
@@ -62,6 +89,7 @@ Authorization:
 Panics / failure conditions:
 
 - Panics with `"amount must be positive"` when `amount <= 0`.
+- Panics with `"memo too long"` if `memo.len() > MAX_MEMO_LEN` (64 bytes) (#720).
 - Panics with `"not initialized"` if no token contract has been configured yet.
 - Fails if the `from` address does not provide the required authorization.
 - Can also fail or panic if the underlying token contract rejects the transfer (for example, if the sender does not have enough balance or the token contract itself aborts).

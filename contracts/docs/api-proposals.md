@@ -96,7 +96,40 @@ pub fn initialize(env: Env, admin: Address)
 
 ---
 
-### 2. `create_proposal`
+### 2. `admin`
+
+Reads and returns the administrator address of the contract (#719).
+
+#### Full Signature
+
+```rust
+pub fn admin(env: Env) -> Address
+```
+
+#### Parameters
+
+- `env: Env`: The Soroban environment context.
+
+#### Return Value
+
+- `Address`: The administrator address stored under `DataKey::Admin`.
+
+#### Authorization Requirements
+
+- None (read-only query).
+
+#### Panics & Error Conditions
+
+- Panics with `"not initialized"` if `DataKey::Admin` does not exist in storage.
+
+#### Complexity Design
+
+- **Time Complexity**: $\mathcal{O}(1)$ instance storage retrieval.
+- **Space Complexity**: $\mathcal{O}(1)$.
+
+---
+
+### 3. `create_proposal`
 
 Creates a new community funding proposal with specified expiration and treasury withdrawal details.
 
@@ -119,7 +152,7 @@ pub fn create_proposal(
 
 - `env: Env`: The Soroban environment context.
 - `proposer: Address`: Address creating the proposal.
-- `description: String`: Text description of the proposal.
+- `description: String`: Text description of the proposal (must be non-empty and at most `MAX_DESCRIPTION_LEN` = 512 bytes) (#721).
 - `expires_at: u64`: Ledger timestamp (in Unix seconds) when voting closes.
 - `treasury: Address`: Target `group_treasury` contract address for funding withdrawal.
 - `token: Address`: Stellar asset/token contract address to withdraw.
@@ -142,13 +175,15 @@ pub fn create_proposal(
 
 #### Panics & Error Conditions
 
+- Panics with `"description cannot be empty"` if `description.is_empty()` (#721).
+- Panics with `"description too long"` if `description.len() > MAX_DESCRIPTION_LEN` (512 bytes) (#721).
 - Panics with `"expires_at must be in the future"` if `expires_at <= env.ledger().timestamp()`.
 - Panics with `"amount must be positive"` if `amount <= 0`.
 
 #### Complexity Design
 
 - **Time Complexity**: $\mathcal{O}(1)$ instance storage read/write and event publish.
-- **Space Complexity**: $\mathcal{O}(L)$ where $L$ is the byte length of `description`.
+- **Space Complexity**: $\mathcal{O}(L)$ where $L$ is the byte length of `description` ($1 \le L \le 512$).
 
 ---
 

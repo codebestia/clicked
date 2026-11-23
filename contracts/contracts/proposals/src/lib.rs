@@ -33,6 +33,9 @@ pub use storage::{
 #[contract]
 pub struct ProposalsContract;
 
+/// Maximum allowed proposal description length in bytes (#721)
+pub const MAX_DESCRIPTION_LEN: u32 = 512;
+
 #[contractimpl]
 impl ProposalsContract {
     /// One-time initialisation. The admin slot is reserved so a future
@@ -49,6 +52,14 @@ impl ProposalsContract {
             .set(&DataKey::NextProposalId, &0u64);
     }
 
+    /// Read the admin address of the contract (#719).
+    pub fn admin(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized")
+    }
+
     /// Create a new proposal that expires at `expires_at` (unix seconds).
     /// Returns the assigned proposal id.
     pub fn create_proposal(
@@ -62,6 +73,12 @@ impl ProposalsContract {
         amount: i128,
     ) -> u64 {
         proposer.require_auth();
+        if description.is_empty() {
+            panic!("description cannot be empty");
+        }
+        if description.len() > MAX_DESCRIPTION_LEN {
+            panic!("description too long");
+        }
         let now = env.ledger().timestamp();
         if expires_at <= now {
             panic!("expires_at must be in the future");

@@ -233,7 +233,7 @@ fn test_add_member() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (contract_id, _token_id, admin, member) = setup(&env);
+    let (contract_id, _token_id, _admin, member) = setup(&env);
     let client = GroupTreasuryContractClient::new(&env, &contract_id);
 
     client.add_member(&member);
@@ -261,7 +261,7 @@ fn test_non_admin_cannot_add_member() {
 
     let admin = Address::generate(&env);
     let member = Address::generate(&env);
-    let non_admin = Address::generate(&env);
+    let _non_admin = Address::generate(&env);
 
     let token_id = env.register(mock_token::MockToken, ());
     let contract_id = env.register(GroupTreasuryContract, ());
@@ -843,4 +843,27 @@ fn test_propose_withdraw_increments_proposal_id() {
 
     assert_eq!(id0, 0);
     assert_eq!(id1, 1);
+}
+
+// ── #719 — Admin getter ───────────────────────────────────────────────────────
+
+#[test]
+fn test_admin_getter_initialized() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let token_id = env.register(mock_token::MockToken, ());
+    let contract_id = env.register(GroupTreasuryContract, ());
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+    client.initialize(&admin, &token_id, &1);
+
+    assert_eq!(client.admin(), admin);
+}
+
+#[test]
+#[should_panic(expected = "not initialized")]
+fn test_admin_getter_uninitialized_panics() {
+    let env = Env::default();
+    let contract_id = env.register(GroupTreasuryContract, ());
+    let client = GroupTreasuryContractClient::new(&env, &contract_id);
+    client.admin();
 }

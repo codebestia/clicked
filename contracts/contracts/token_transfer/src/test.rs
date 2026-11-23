@@ -194,3 +194,51 @@ fn test_upgrade_non_admin_panics() {
     let wasm_hash = soroban_sdk::BytesN::from_array(&env, &[0xcd; 32]);
     client.upgrade(&wasm_hash);
 }
+
+// ── #719 & #720 — Admin getter and memo length caps ────────────────────────
+
+#[test]
+fn test_admin_getter_initialized() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = setup_with_admin(&env, &admin);
+    let client = TokenTransferContractClient::new(&env, &contract_id);
+    assert_eq!(client.admin(), admin);
+}
+
+#[test]
+#[should_panic(expected = "not initialized")]
+fn test_admin_getter_uninitialized_panics() {
+    let env = Env::default();
+    let contract_id = env.register(TokenTransferContract, ());
+    let client = TokenTransferContractClient::new(&env, &contract_id);
+    client.admin();
+}
+
+#[test]
+fn test_transfer_memo_at_limit_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, token_id, sender, receiver) = setup(&env);
+    let client = TokenTransferContractClient::new(&env, &contract_id);
+    let token = MockTokenClient::new(&env, &token_id);
+
+    let memo_bytes = [b'a'; 64];
+    let memo = Bytes::from_slice(&env, &memo_bytes);
+    client.transfer(&sender, &receiver, &100_000, &memo);
+
+    assert_eq!(token.balance(&receiver), 100_000);
+}
+
+#[test]
+#[should_panic(expected = "memo too long")]
+fn test_transfer_memo_over_limit_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, _token_id, sender, receiver) = setup(&env);
+    let client = TokenTransferContractClient::new(&env, &contract_id);
+
+    let memo_bytes = [b'a'; 65];
+    let memo = Bytes::from_slice(&env, &memo_bytes);
+    client.transfer(&sender, &receiver, &100_000, &memo);
+}

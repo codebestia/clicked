@@ -11,6 +11,9 @@ use token_interface::TokenClient;
 #[contract]
 pub struct TokenTransferContract;
 
+/// Maximum allowed memo length in bytes (#720)
+pub const MAX_MEMO_LEN: u32 = 64;
+
 #[contractimpl]
 impl TokenTransferContract {
     /// One-time initialisation. Sets the admin and the SEP-41 token this
@@ -25,6 +28,14 @@ impl TokenTransferContract {
             .set(&DataKey::TokenContract, &token_contract);
     }
 
+    /// Read the admin address of the contract (#719).
+    pub fn admin(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized")
+    }
+
     /// Transfer `amount` of the configured token from `from` to `to`.
     /// `memo` is an optional opaque byte string (e.g. a message UUID) that is
     /// stored in the emitted event so the backend can correlate the transfer
@@ -32,6 +43,9 @@ impl TokenTransferContract {
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128, memo: Bytes) {
         if amount <= 0 {
             panic!("amount must be positive");
+        }
+        if memo.len() > MAX_MEMO_LEN {
+            panic!("memo too long");
         }
 
         // Require the sender's authorisation

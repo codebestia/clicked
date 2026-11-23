@@ -471,3 +471,79 @@ fn execute_withdraw_non_member_panics() {
     // alice is not a treasury member
     client.execute_withdraw(&alice, &id);
 }
+
+// ── #719 & #721 — Admin getter and description length caps ──────────────────
+
+#[test]
+fn test_admin_getter_initialized() {
+    let env = Env::default();
+    let (client, padmin, _alice, _bob, _carol, _treasury, _tadmin, _member, _token_id) = setup(&env);
+    assert_eq!(client.admin(), padmin);
+}
+
+#[test]
+#[should_panic(expected = "not initialized")]
+fn test_admin_getter_uninitialized_panics() {
+    let env = Env::default();
+    let contract_id = env.register(ProposalsContract, ());
+    let client = ProposalsContractClient::new(&env, &contract_id);
+    client.admin();
+}
+
+#[test]
+#[should_panic(expected = "description cannot be empty")]
+fn test_create_proposal_empty_description_panics() {
+    let env = Env::default();
+    let (client, _padmin, alice, _bob, _carol, treasury, _tadmin, _member, token_id) = setup(&env);
+    let now = env.ledger().timestamp();
+    let empty_desc = String::from_str(&env, "");
+    client.create_proposal(
+        &alice,
+        &empty_desc,
+        &(now + 1_000),
+        &treasury.address,
+        &token_id,
+        &alice,
+        &100,
+    );
+}
+
+#[test]
+fn test_create_proposal_description_at_limit_succeeds() {
+    let env = Env::default();
+    let (client, _padmin, alice, _bob, _carol, treasury, _tadmin, _member, token_id) = setup(&env);
+    let now = env.ledger().timestamp();
+    let bytes = [b'a'; 512];
+    let at_limit_str = core::str::from_utf8(&bytes).unwrap();
+    let desc = String::from_str(&env, at_limit_str);
+    let id = client.create_proposal(
+        &alice,
+        &desc,
+        &(now + 1_000),
+        &treasury.address,
+        &token_id,
+        &alice,
+        &100,
+    );
+    assert_eq!(id, 0);
+}
+
+#[test]
+#[should_panic(expected = "description too long")]
+fn test_create_proposal_description_over_limit_panics() {
+    let env = Env::default();
+    let (client, _padmin, alice, _bob, _carol, treasury, _tadmin, _member, token_id) = setup(&env);
+    let now = env.ledger().timestamp();
+    let bytes = [b'a'; 513];
+    let over_limit_str = core::str::from_utf8(&bytes).unwrap();
+    let desc = String::from_str(&env, over_limit_str);
+    client.create_proposal(
+        &alice,
+        &desc,
+        &(now + 1_000),
+        &treasury.address,
+        &token_id,
+        &alice,
+        &100,
+    );
+}

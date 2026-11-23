@@ -56,6 +56,14 @@ impl GroupTreasuryContract {
             .expect("not initialized")
     }
 
+    /// Read the admin address of the treasury (#719).
+    pub fn admin(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized")
+    }
+
     /// Admin-only: Add a new member to the treasury.
     pub fn add_member(env: Env, member: Address) {
         let admin = require_admin(&env);
@@ -89,7 +97,7 @@ impl GroupTreasuryContract {
     pub fn remove_member(env: Env, member: Address) {
         let admin = require_admin(&env);
 
-        let mut members: Vec<Address> = env
+        let members: Vec<Address> = env
             .storage()
             .instance()
             .get(&DataKey::Members)
@@ -177,7 +185,7 @@ impl GroupTreasuryContract {
             panic!("amount must be positive");
         }
 
-        let admin = require_admin(&env);
+        let _admin = require_admin(&env);
 
         let mut balances: Map<Address, i128> = env
             .storage()
