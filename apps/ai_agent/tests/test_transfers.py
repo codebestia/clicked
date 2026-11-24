@@ -94,6 +94,92 @@ def test_llm_path_missing_api_key_returns_500(monkeypatch):
     assert response.status_code == 500
 
 
+def test_llm_path_invalid_json_returns_502():
+    with patch("main._openai_client") as mock_client_fn:
+        mock_client = MagicMock()
+        mock_client_fn.return_value = mock_client
+        msg = MagicMock()
+        msg.content = "not valid json"
+        choice = MagicMock()
+        choice.message = msg
+        resp = MagicMock()
+        resp.choices = [choice]
+        mock_client.chat.completions.create.return_value = resp
+        response = client.post(
+            "/transfers/analyse",
+            json={"amount": 100.0, "sender": "GABC", "recipient": "GDEF", "memo": "test"},
+        )
+        assert response.status_code == 502
+        assert "valid JSON" in response.json()["detail"]
+
+
+def test_llm_path_none_content_returns_502():
+    with patch("main._openai_client") as mock_client_fn:
+        mock_client = MagicMock()
+        mock_client_fn.return_value = mock_client
+        msg = MagicMock()
+        msg.content = None
+        choice = MagicMock()
+        choice.message = msg
+        resp = MagicMock()
+        resp.choices = [choice]
+        mock_client.chat.completions.create.return_value = resp
+        response = client.post(
+            "/transfers/analyse",
+            json={"amount": 100.0, "sender": "GABC", "recipient": "GDEF", "memo": "test"},
+        )
+        assert response.status_code == 502
+        assert "valid JSON" in response.json()["detail"]
+
+
+def test_llm_path_confidence_above_range_clamped():
+    with patch("main._openai_client") as mock_client_fn:
+        mock_client = MagicMock()
+        mock_client_fn.return_value = mock_client
+        mock_client.chat.completions.create.return_value = _fake_openai_response(
+            {"flagged": True, "reason": "High value", "confidence": 7.5}
+        )
+        response = client.post(
+            "/transfers/analyse",
+            json={"amount": 100.0, "sender": "GABC", "recipient": "GDEF", "memo": "test"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["confidence"] == 1.0
+
+
+def test_llm_path_confidence_below_range_clamped():
+    with patch("main._openai_client") as mock_client_fn:
+        mock_client = MagicMock()
+        mock_client_fn.return_value = mock_client
+        mock_client.chat.completions.create.return_value = _fake_openai_response(
+            {"flagged": False, "reason": None, "confidence": -0.5}
+        )
+        response = client.post(
+            "/transfers/analyse",
+            json={"amount": 100.0, "sender": "GABC", "recipient": "GDEF", "memo": "test"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["confidence"] == 0.0
+
+
+def test_llm_path_confidence_non_numeric_defaults_to_zero():
+    with patch("main._openai_client") as mock_client_fn:
+        mock_client = MagicMock()
+        mock_client_fn.return_value = mock_client
+        mock_client.chat.completions.create.return_value = _fake_openai_response(
+            {"flagged": True, "reason": "Suspicious", "confidence": "high"}
+        )
+        response = client.post(
+            "/transfers/analyse",
+            json={"amount": 100.0, "sender": "GABC", "recipient": "GDEF", "memo": "test"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["confidence"] == 0.0
+
+
 # ── Rule-based path (issue #145) ──────────────────────────────────────────────
 
 

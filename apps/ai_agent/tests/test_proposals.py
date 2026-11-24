@@ -127,6 +127,38 @@ def test_missing_api_key_returns_500(monkeypatch):
     assert response.status_code == 500
 
 
+def test_invalid_json_returns_502():
+    with patch("main._openai_client") as mock_fn:
+        mock_client = MagicMock()
+        mock_fn.return_value = mock_client
+        msg = MagicMock()
+        msg.content = "invalid json content"
+        choice = MagicMock()
+        choice.message = msg
+        resp = MagicMock()
+        resp.choices = [choice]
+        mock_client.chat.completions.create.return_value = resp
+        response = client.post("/proposals/summarise", json=_BASE_BODY)
+    assert response.status_code == 502
+    assert "summary" in response.json()["detail"]
+
+
+def test_none_content_returns_502():
+    with patch("main._openai_client") as mock_fn:
+        mock_client = MagicMock()
+        mock_fn.return_value = mock_client
+        msg = MagicMock()
+        msg.content = None
+        choice = MagicMock()
+        choice.message = msg
+        resp = MagicMock()
+        resp.choices = [choice]
+        mock_client.chat.completions.create.return_value = resp
+        response = client.post("/proposals/summarise", json=_BASE_BODY)
+    assert response.status_code == 502
+    assert "summary" in response.json()["detail"]
+
+
 def test_missing_title_returns_422():
     body = {k: v for k, v in _BASE_BODY.items() if k != "title"}
     response = client.post("/proposals/summarise", json=body)

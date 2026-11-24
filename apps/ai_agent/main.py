@@ -133,11 +133,23 @@ def analyse_transfer(request: TransferAnalyseRequest):
         response_format={"type": "json_object"},
         timeout=10,
     )
-    result = json.loads(response.choices[0].message.content)
+    
+    try:
+        result = json.loads(response.choices[0].message.content)
+    except (json.JSONDecodeError, TypeError):
+        raise HTTPException(status_code=502, detail="LLM did not return valid JSON")
+    
+    # Clamp confidence to [0, 1], default to 0.0
+    try:
+        confidence = float(result.get("confidence", 0.0))
+        confidence = max(0.0, min(1.0, confidence))
+    except (ValueError, TypeError):
+        confidence = 0.0
+    
     return TransferAnalyseResponse(
         flagged=bool(result.get("flagged", False)),
         reason=result.get("reason"),
-        confidence=float(result.get("confidence", 0.0)),
+        confidence=confidence,
     )
 
 
@@ -161,7 +173,11 @@ def summarise_proposal(request: ProposalSummariseRequest):
         response_format={"type": "json_object"},
         timeout=10,
     )
-    result = json.loads(response.choices[0].message.content)
+    
+    try:
+        result = json.loads(response.choices[0].message.content)
+    except (json.JSONDecodeError, TypeError):
+        raise HTTPException(status_code=502, detail="LLM did not return a summary")
 
     summary = (result.get("summary") or "").strip()
     if not summary:
