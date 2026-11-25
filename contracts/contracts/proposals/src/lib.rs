@@ -68,7 +68,7 @@ impl ProposalsContract {
         if expires_at <= now {
             panic!("expires_at must be in the future");
         }
-        if description.len() == 0 {
+        if description.is_empty() {
             panic!("description cannot be empty");
         }
         if description.len() > MAX_DESCRIPTION_LEN {
