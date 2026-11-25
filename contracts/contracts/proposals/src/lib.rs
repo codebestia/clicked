@@ -23,6 +23,8 @@ mod treasury_interface;
 
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Symbol};
 
+pub const MAX_DESCRIPTION_LEN: u32 = 512;
+
 pub use storage::{
     DataKey, Proposal, ProposalCreatedEvent, ProposalExecutedEvent, ProposalExpiredEvent,
     ProposalFinalizedEvent, ProposalStatus, VoteCastEvent,
@@ -65,6 +67,12 @@ impl ProposalsContract {
         let now = env.ledger().timestamp();
         if expires_at <= now {
             panic!("expires_at must be in the future");
+        }
+        if description.len() == 0 {
+            panic!("description cannot be empty");
+        }
+        if description.len() > MAX_DESCRIPTION_LEN {
+            panic!("description too long");
         }
         if amount <= 0 {
             panic!("amount must be positive");

@@ -471,3 +471,62 @@ fn execute_withdraw_non_member_panics() {
     // alice is not a treasury member
     client.execute_withdraw(&alice, &id);
 }
+
+#[test]
+#[should_panic(expected = "description too long")]
+fn create_proposal_description_too_long_panics() {
+    let env = Env::default();
+    let (client, _padmin, alice, _bob, _carol, _treasury, _tadmin, m, token_id) = setup(&env);
+
+    let long_str = "a".repeat(513);
+    let desc = String::from_str(&env, &long_str);
+    let now = env.ledger().timestamp();
+    client.create_proposal(
+        &alice,
+        &desc,
+        &(now + 1000),
+        &m,
+        &token_id,
+        &alice,
+        &1,
+    );
+}
+
+#[test]
+fn create_proposal_at_limit_description_succeeds() {
+    let env = Env::default();
+    let (client, _padmin, alice, _bob, _carol, _treasury, _tadmin, m, token_id) = setup(&env);
+
+    let limit_str = "a".repeat(512);
+    let desc = String::from_str(&env, &limit_str);
+    let now = env.ledger().timestamp();
+    let id = client.create_proposal(
+        &alice,
+        &desc,
+        &(now + 1000),
+        &m,
+        &token_id,
+        &alice,
+        &1,
+    );
+    assert!(id >= 0);
+}
+
+#[test]
+#[should_panic(expected = "description cannot be empty")]
+fn create_proposal_empty_description_panics() {
+    let env = Env::default();
+    let (client, _padmin, alice, _bob, _carol, _treasury, _tadmin, m, token_id) = setup(&env);
+
+    let desc = String::from_str(&env, "");
+    let now = env.ledger().timestamp();
+    client.create_proposal(
+        &alice,
+        &desc,
+        &(now + 1000),
+        &m,
+        &token_id,
+        &alice,
+        &1,
+    );
+}

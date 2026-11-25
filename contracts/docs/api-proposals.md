@@ -144,6 +144,8 @@ pub fn create_proposal(
 
 - Panics with `"expires_at must be in the future"` if `expires_at <= env.ledger().timestamp()`.
 - Panics with `"amount must be positive"` if `amount <= 0`.
+- Panics with `"description too long"` if `description.len()` exceeds `MAX_DESCRIPTION_LEN` (512 bytes).
+- Panics with `"description cannot be empty"` if `description.is_empty()`.
 
 #### Complexity Design
 
