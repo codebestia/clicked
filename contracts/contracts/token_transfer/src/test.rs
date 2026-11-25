@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, Address, Bytes, Env};
+use soroban_sdk::{testutils::Address as _, Address, Bytes};
 
 // ── Minimal mock token contract ───────────────────────────────────────────────
 

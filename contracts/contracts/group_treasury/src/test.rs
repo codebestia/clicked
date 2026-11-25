@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::*;
-use crate::storage::{DataKey, ProposalStatus, WithdrawProposal};
+use crate::storage::{ProposalStatus, WithdrawProposal};
 use soroban_sdk::{
     testutils::{Address as _, Ledger as _},
     Address, Env,
