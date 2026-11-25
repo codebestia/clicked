@@ -148,6 +148,25 @@ fn create_proposal_in(
 }
 
 #[test]
+fn test_admin() {
+    let env = Env::default();
+    let proposals_id = env.register(ProposalsContract, ());
+    let client = ProposalsContractClient::new(&env, &proposals_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    assert_eq!(client.admin(), admin);
+}
+
+#[test]
+#[should_panic(expected = "not initialized")]
+fn test_admin_not_initialized() {
+    let env = Env::default();
+    let proposals_id = env.register(ProposalsContract, ());
+    let client = ProposalsContractClient::new(&env, &proposals_id);
+    client.admin();
+}
+
+#[test]
 fn create_then_vote_then_pass_then_execute_happy_path() {
     let env = Env::default();
     let (client, _proposals_admin, alice, bob, carol, _treasury, _treasury_admin, _m, _token_id) =

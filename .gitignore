@@ -1,4 +1,6 @@
 node_modules/
+package-lock.json
+.turbo/
 .env
 dist/
 dist-tsc/
@@ -10,7 +12,6 @@ __pycache__/
 target/
 .soroban/
 .DS_Store
-.turbo/
 
 # Local-disk object store for dev/test (#330) — never committed.
 apps/backend/.local-storage/

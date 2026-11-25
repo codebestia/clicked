@@ -38,6 +38,13 @@ impl ProposalsContract {
     /// One-time initialisation. The admin slot is reserved so a future
     /// upgrade can wire admin-only governance hooks (e.g. quorum
     /// changes) without breaking the existing API.
+    pub fn admin(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized")
+    }
+
     pub fn initialize(env: Env, admin: Address) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");

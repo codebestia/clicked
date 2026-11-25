@@ -67,6 +67,30 @@ fn setup(env: &Env) -> (Address, Address, Address, Address) {
 }
 
 #[test]
+fn test_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(TokenTransferContract, ());
+    let client = TokenTransferContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    client.initialize(&admin, &token);
+    assert_eq!(client.admin(), admin);
+}
+
+#[test]
+#[should_panic(expected = "not initialized")]
+fn test_admin_uninitialized() {
+    let env = Env::default();
+    let contract_id = env.register(TokenTransferContract, ());
+    let client = TokenTransferContractClient::new(&env, &contract_id);
+    client.admin();
+}
+
+#[test]
 fn test_initialize() {
     let env = Env::default();
     let (contract_id, token_id, _sender, _receiver) = setup(&env);

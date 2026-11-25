@@ -1,0 +1,57 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    groups:
+      minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "dx"
+      - "frontend"
+
+  - package-ecosystem: "pip"
+    directory: "/apps/ai_agent"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    groups:
+      minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "dx"
+      - "ai"
+
+  - package-ecosystem: "cargo"
+    directory: "/contracts"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    groups:
+      minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "dx"
+      - "contracts"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "dev"
+    groups:
+      minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    labels:
+      - "dx"
+      - "ci"

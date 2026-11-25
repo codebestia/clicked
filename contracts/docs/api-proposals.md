@@ -61,7 +61,31 @@ pub struct Proposal {
 
 ## 🛠️ Public Functions
 
-### 1. `initialize`
+### 1. `admin`
+
+Returns the administrator address of the contract.
+
+#### Full Signature
+
+```rust
+pub fn admin(env: Env) -> Address
+```
+
+#### Parameters
+
+- `env: Env`: The Soroban environment context.
+
+#### Return Value
+
+- `Address`: The address of the contract administrator.
+
+#### Panics & Error Conditions
+
+- Panics with `"not initialized"` if the admin slot has not been initialized.
+
+---
+
+### 2. `initialize`
 
 Initializes the contract admin slot and sets the initial proposal ID counter to `0`.
 

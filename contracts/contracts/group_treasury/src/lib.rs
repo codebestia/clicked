@@ -49,10 +49,17 @@ impl GroupTreasuryContract {
     }
 
     /// Returns the configured approval threshold.
-    pub fn get_threshold(env: Env) -> u32 {
+    pub fn admin(env: Env) -> Address {
         env.storage()
             .instance()
-            .get(&DataKey::Threshold)
+            .get(&DataKey::Admin)
+            .expect("not initialized")
+    }
+
+    pub fn token_contract(env: Env) -> Address {
+        env.storage()
+            .instance()
+            .get(&DataKey::TokenContract)
             .expect("not initialized")
     }
 
