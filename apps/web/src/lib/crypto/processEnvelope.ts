@@ -81,8 +81,12 @@ export function mergeInboundMessage(
   incoming: InboundMessage,
 ): InboundMessage {
   if (!existing) return incoming;
+  // Preserve the edited flag across any merge so it is never lost.
+  const edited = existing.edited || incoming.edited;
   // Prefer a decrypted result over unavailable/pending.
-  if (existing.status === 'decrypted') return existing;
-  if (incoming.status === 'decrypted') return { ...existing, ...incoming };
-  return { ...existing, ...incoming };
+  if (existing.status === 'decrypted' && incoming.status !== 'decrypted') {
+    return edited ? { ...existing, edited } : existing;
+  }
+  if (incoming.status === 'decrypted') return { ...existing, ...incoming, edited };
+  return { ...existing, ...incoming, ...(edited ? { edited } : {}) };
 }

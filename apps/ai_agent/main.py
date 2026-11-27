@@ -99,9 +99,18 @@ def _openai_client():
     return OpenAI(api_key=api_key)
 
 
-def _connect_search_backend() -> weaviate.WeaviateClient:
+def _weaviate_client() -> weaviate.WeaviateClient:
+    """Return a connected Weaviate client using environment-configured coordinates.
+
+    Reads WEAVIATE_HOST (default: localhost), WEAVIATE_HTTP_PORT (default: 8080),
+    and WEAVIATE_GRPC_PORT (default: 50051) so that deployments can point the
+    agent at any Weaviate instance without code changes.
+    """
+    host = os.environ.get("WEAVIATE_HOST", "localhost")
+    http_port = int(os.environ.get("WEAVIATE_HTTP_PORT", "8080"))
+    grpc_port = int(os.environ.get("WEAVIATE_GRPC_PORT", "50051"))
     try:
-        return weaviate.connect_to_local()
+        return weaviate.connect_to_local(host=host, port=http_port, grpc_port=grpc_port)
     except HTTPException:
         raise
     except Exception:
@@ -237,7 +246,7 @@ def summarise_proposal(request: ProposalSummariseRequest):
 
 @app.post("/index/message")
 def index_message(request: IndexMessageRequest):
-    client = _connect_search_backend()
+    client = _weaviate_client()
 
     try:
         if not client.collections.exists("Message"):
@@ -289,7 +298,7 @@ def search_messages(
     q: str = Query(min_length=1, max_length=MAX_TEXT_LEN),
     conversationId: str = Query(min_length=1, max_length=MAX_SHORT_TEXT_LEN),
 ):
-    client = _connect_search_backend()
+    client = _weaviate_client()
 
     try:
         if not client.collections.exists("Message"):

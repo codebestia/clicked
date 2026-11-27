@@ -27,6 +27,14 @@ export function InboundMessageRow({ message, isSelf, senderName }: InboundMessag
           }`}
         >
           {message.plaintext}
+          {message.edited && (
+            <span
+              aria-label="edited"
+              className="ml-1.5 text-[10px] opacity-60 select-none"
+            >
+              (edited)
+            </span>
+          )}
         </div>
       ) : message.status === 'unavailable' && message.unavailableReason ? (
         <UnavailableMessagePlaceholder reason={message.unavailableReason} />

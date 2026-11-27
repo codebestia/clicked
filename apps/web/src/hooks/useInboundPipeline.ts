@@ -13,11 +13,12 @@ import {
 import type {
   DeviceEnvelopeEvent,
   InboundMessage,
+  MessageEditedEvent,
   MessageEnvelopeEvent,
   SyncEnvelope,
 } from '@/lib/crypto/types';
-import { deleteCachedPlaintext } from '@/lib/crypto/plaintextCache';
-import { removeMessages } from '@/lib/search/searchClient';
+import { deleteCachedPlaintext, setCachedPlaintext } from '@/lib/crypto/plaintextCache';
+import { indexMessages, removeMessages } from '@/lib/search/searchClient';
 
 interface NewMessageMeta {
   id: string;
@@ -263,6 +264,66 @@ export function useInboundPipeline({
     });
   }, []);
 
+  /**
+   * Handles `message_edited` from the socket (#674).
+   *
+   * Re-runs the full decrypt path on the new ciphertext so the edited text
+   * goes through the same key-lookup and verification as an original message.
+   * On success: replaces the plaintext cache entry, updates the search index,
+   * and sets `edited: true` on the stored message so the UI can show a marker.
+   * On failure: keeps the existing message intact and surfaces the
+   * unavailable reason — the original plaintext (if any) is preserved.
+   */
+  const handleMessageEdited = useCallback(
+    async (event: MessageEditedEvent) => {
+      if (event.conversationId !== conversationId) return;
+      if (deletedMessageIdsRef.current.has(event.messageId)) return;
+
+      // Run the envelope through the normal decrypt pipeline.
+      const result = await processInboundEnvelope(
+        {
+          messageId: event.messageId,
+          conversationId: event.conversationId,
+          senderId: event.senderId,
+          senderDeviceId: event.senderDeviceId,
+          sequenceNumber: event.sequenceNumber,
+          contentType: event.contentType,
+          createdAt: event.createdAt,
+          ciphertext: event.ciphertext,
+        },
+        token ?? '',
+      );
+
+      if (deletedMessageIdsRef.current.has(event.messageId)) return;
+
+      if (result.status === 'decrypted' && result.plaintext) {
+        // Overwrite the cache so subsequent renders show the updated text.
+        setCachedPlaintext(event.messageId, result.plaintext);
+
+        // Reflect the edit in the search index.
+        void indexMessages([
+          {
+            id: event.messageId,
+            conversationId: event.conversationId,
+            senderId: event.senderId,
+            plaintext: result.plaintext,
+            contentType: event.contentType,
+            createdAt: event.createdAt,
+            sequenceNumber: event.sequenceNumber,
+          },
+        ]).catch((error) => {
+          console.warn('Failed to update search index for edited message', error);
+        });
+      }
+      // On decrypt failure the result carries status:'unavailable'. We still
+      // upsert so the UI reflects the unavailable state, but we do NOT blank an
+      // already-decrypted message — mergeInboundMessage prefers 'decrypted'.
+      // We always mark edited:true so the marker stays visible either way.
+      upsertMessage({ ...result, edited: true });
+    },
+    [token, conversationId, upsertMessage],
+  );
+
   // Live envelope delivery (#144).
   useEffect(() => {
     if (!socket) return;
@@ -297,14 +358,18 @@ export function useInboundPipeline({
     socket.on('device_envelope', onDeviceEnvelope);
     socket.on('new_message', onNewMessage);
     socket.on('message_deleted', handleMessageDeleted);
+    socket.on('message_edited', (event: MessageEditedEvent) => {
+      void handleMessageEdited(event);
+    });
 
     return () => {
       socket.off('message_envelope', onMessageEnvelope);
       socket.off('device_envelope', onDeviceEnvelope);
       socket.off('new_message', onNewMessage);
       socket.off('message_deleted', handleMessageDeleted);
+      socket.off('message_edited');
     };
-  }, [socket, conversationId, handleEnvelope, ingestCiphertext, ingestMeta, handleMessageDeleted]);
+  }, [socket, conversationId, handleEnvelope, ingestCiphertext, ingestMeta, handleMessageDeleted, handleMessageEdited]);
 
   // Offline sync on connect (#137).
   useEffect(() => {

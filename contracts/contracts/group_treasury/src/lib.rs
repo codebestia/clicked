@@ -69,7 +69,7 @@ impl GroupTreasuryContract {
     pub fn add_member(env: Env, member: Address) {
         let admin = require_admin(&env);
 
-        let mut members: Vec<Address> = env
+        let members: Vec<Address> = env
             .storage()
             .instance()
             .get(&DataKey::Members)
@@ -186,7 +186,7 @@ impl GroupTreasuryContract {
             panic!("amount must be positive");
         }
 
-        let admin = require_admin(&env);
+        let _admin = require_admin(&env);
 
         let mut balances: Map<Address, i128> = env
             .storage()

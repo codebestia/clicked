@@ -62,6 +62,20 @@ export interface InboundMessage {
   status: InboundMessageStatus;
   plaintext?: string;
   unavailableReason?: UnavailableReason;
+  /** True when the backend has emitted a message_edited event for this message. */
+  edited?: boolean;
+}
+
+/** Payload emitted by the backend for the `message_edited` socket event. */
+export interface MessageEditedEvent {
+  messageId: string;
+  conversationId: string;
+  senderId: string;
+  senderDeviceId: string | null;
+  contentType: string;
+  sequenceNumber: number;
+  createdAt: string;
+  ciphertext: string;
 }
 
 export class PreLinkError extends Error {
