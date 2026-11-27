@@ -10,9 +10,9 @@ export async function transferToken(
   memo = '',
 ): Promise<string> {
   const freighter = await import('@stellar/freighter-api');
-  const stellar = await import('stellar-sdk');
+  const stellar = await import('@stellar/stellar-sdk');
 
-  const { SorobanRpc, xdr, TransactionBuilder, BASE_FEE, Contract, Networks, nativeToScVal } =
+  const { rpc, xdr, TransactionBuilder, BASE_FEE, Contract, Networks, nativeToScVal } =
     stellar;
 
   const RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || 'https://soroban-testnet.stellar.org';
@@ -40,7 +40,7 @@ export async function transferToken(
 
   const op = contract.call('transfer', fromSc, toSc, amountSc, memoSc);
 
-  const server = new SorobanRpc.Server(RPC_URL, { allowHttp: false });
+  const server = new rpc.Server(RPC_URL, { allowHttp: false });
   const account = await server.getAccount(publicKey);
 
   const tx = new TransactionBuilder(account, {
@@ -52,11 +52,11 @@ export async function transferToken(
     .build();
 
   const simResult = await server.simulateTransaction(tx);
-  if (SorobanRpc.Api.isSimulationError(simResult)) {
+  if (rpc.Api.isSimulationError(simResult)) {
     throw new Error(String(simResult.error));
   }
 
-  const prepared = SorobanRpc.assembleTransaction(tx, simResult).build();
+  const prepared = rpc.assembleTransaction(tx, simResult).build();
   const txXdr = prepared.toXDR();
 
   const signResult = await freighter.signTransaction(txXdr, {
@@ -81,8 +81,8 @@ export async function transferToken(
     await new Promise((resolve) => setTimeout(resolve, 2000));
     try {
       const status = await server.getTransaction(hash);
-      if (status.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) return hash;
-      if (status.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
+      if (status.status === rpc.Api.GetTransactionStatus.SUCCESS) return hash;
+      if (status.status === rpc.Api.GetTransactionStatus.FAILED) {
         throw new Error(`Transaction reverted: ${hash}`);
       }
     } catch {
