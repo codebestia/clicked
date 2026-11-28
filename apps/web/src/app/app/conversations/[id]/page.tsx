@@ -11,7 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { API_BASE_URL } from '@/lib/api';
+import { API_BASE_URL, apiFetch } from '@/lib/api';
 import { useSocket } from '@/hooks/useSocket';
 import { emitSocketEnvelope } from '@/lib/realtime';
 import { useAuth } from '@/components/auth/useAuth';
@@ -119,10 +119,6 @@ const EMPTY_SAFETY_STATE: SafetyState = {
   loading: true,
   error: null,
 };
-
-function authHeaders(token: string) {
-  return { Authorization: `Bearer ${token}` };
-}
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -241,7 +237,7 @@ function isRelevantKeyChangeEvent(payload: unknown, userIds: Set<string>, conver
 
 export default function ConversationPage() {
   const { id } = useParams<{ id: string }>();
-  const { token, loading: authLoading } = useAuth();
+  const { token, loading: authLoading, clearToken } = useAuth();
   const socket = useSocket(token);
 
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
@@ -372,9 +368,14 @@ export default function ConversationPage() {
       }));
 
       try {
-        const response = await fetch(`${API_BASE_URL}/users/${userId}/key-fingerprint`, {
-          headers: authHeaders(token),
+        const response = await apiFetch(`/users/${userId}/key-fingerprint`, {
+          headers: { Authorization: `Bearer ${token}` },
         });
+
+        if (response.status === 401) {
+          clearToken();
+          throw new Error('Safety number unavailable');
+        }
 
         if (!response.ok) {
           throw new Error('Safety number unavailable');
@@ -410,7 +411,7 @@ export default function ConversationPage() {
         }));
       }
     },
-    [token],
+    [clearToken, token],
   );
 
   useEffect(() => {
@@ -429,10 +430,21 @@ export default function ConversationPage() {
 
       try {
         const [meResponse, conversationResponse, messagesResponse] = await Promise.all([
-          fetch(`${API_BASE_URL}/users/me`, { headers: authHeaders(token) }),
-          fetch(`${API_BASE_URL}/conversations/${id}`, { headers: authHeaders(token) }),
-          fetch(`${API_BASE_URL}/conversations/${id}/messages`, { headers: authHeaders(token) }),
+          apiFetch('/users/me', { headers: { Authorization: `Bearer ${token}` } }),
+          apiFetch(`/conversations/${id}`, { headers: { Authorization: `Bearer ${token}` } }),
+          apiFetch(`/conversations/${id}/messages`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
         ]);
+
+        if (
+          meResponse.status === 401 ||
+          conversationResponse.status === 401 ||
+          messagesResponse.status === 401
+        ) {
+          clearToken();
+          throw new Error('Sign in to view this conversation.');
+        }
 
         if (!meResponse.ok) throw new Error('Unable to load current user');
         if (!conversationResponse.ok) throw new Error('Unable to load conversation');
@@ -462,7 +474,7 @@ export default function ConversationPage() {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, id, token]);
+  }, [authLoading, clearToken, id, token]);
 
   useEffect(() => {
     contacts.forEach((member) => {
